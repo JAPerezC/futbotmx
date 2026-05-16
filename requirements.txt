@@ -1,0 +1,38 @@
+# Stack base (sujeto a refinamiento tras validar SAM 3)
+# Generado: 2026-05-15
+
+# --- Núcleo CV/ML ---
+torch>=2.2
+torchvision>=0.17
+numpy>=1.26
+opencv-python>=4.9
+pillow>=10.0
+
+# --- SAM 3 (Meta) ---
+# Instrucción de instalación pendiente — ver docs/install.md
+# transformers (si SAM 3 se distribuye vía HF)
+transformers>=4.45
+
+# --- Tracking ---
+# ByteTrack se distribuye típicamente como repo, no PyPI
+# pip install desde fuente o usar boxmot
+supervision>=0.27
+scipy>=1.11
+
+# --- Análisis y visualización ---
+matplotlib>=3.8
+seaborn>=0.13
+pandas>=2.2
+plotly>=5.20
+
+# --- Utilidades ---
+tqdm>=4.66
+pyyaml>=6.0
+python-dotenv>=1.0
+loguru>=0.7
+
+# --- Dev ---
+pytest>=8.0
+ruff>=0.5
+mypy>=1.10
+ipykernel>=6.29

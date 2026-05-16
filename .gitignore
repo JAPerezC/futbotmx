@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Notebooks
+.ipynb_checkpoints/
+*.ipynb_meta
+
+# Datos pesados — NO commitear
+data/raw/
+data/processed/
+data/models/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
+# Pesos de modelos
+*.pth
+*.pt
+*.bin
+*.safetensors
+*.engine
+*.onnx
+
+# Outputs temporales
+runs/
+outputs/
+logs/
+wandb/
+mlruns/
+*.log
+
+# Secretos
+.env
+.envrc
+.secrets/
+.aws/
+*.pem
+*.key
+credentials.json
+config.local.*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS
+desktop.ini
+$RECYCLE.BIN/
