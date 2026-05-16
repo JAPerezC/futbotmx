@@ -53,11 +53,15 @@ Pendiente. Requerirá GPU NVIDIA con CUDA, Python 3.11+, torch 2.x.
 
 ## Dataset
 
-Videos oficiales de la Copa FutBotMX 2026, capturados con **Meta Ray-Ban
-Glasses** (perspectiva egocéntrica/primera persona durante el partido):
+Videos oficiales de la Copa FutBotMX 2026 alojados en Google Drive:
 
 - Drive: https://drive.google.com/drive/folders/1TF7-P4rAwPmHFw_TjmNfFU3ORxqnp8CD
 - Estructura: `Meta_Glasses/{17Abril,18abril}/`
+
+La primera muestra inspeccionada fue grabada con **iPhone 16 Pro Max**
+desde la orilla del campo (no Meta Ray-Ban como sugiere el nombre de la
+carpeta). El tipo de cámara puede ser mixto a lo largo del dataset —
+ver `docs/dataset-inspection.md` para el análisis técnico completo.
 
 ## Recursos oficiales
 

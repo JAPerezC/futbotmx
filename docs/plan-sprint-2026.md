@@ -1,12 +1,24 @@
 # Plan de sprint Copa FutBotMX — 2026-05-15 a 2026-06-19
 
-## Hallazgos críticos (2026-05-15)
+## Hallazgos críticos
 
-- **Dataset es egocéntrico** (Meta Ray-Ban Glasses), no broadcast ni cenital.
-  Implica: pipeline robusto a cámara en movimiento + oclusiones constantes.
+### 2026-05-15
 - **SAM 3.1 > SAM 3** para multi-objeto (object multiplexing, 32 fps en H100).
 - **Licencia SAM 3 ≠ MIT** — tratar como dependencia externa.
 - HF gated: aceptar términos manualmente antes de descargar pesos.
+
+### 2026-05-16 (tras inspeccionar primera muestra)
+- **El dataset NO es Ray-Ban egocéntrico** como suponíamos. La primera muestra
+  (`data/raw/IMG_9915.MOV`) es de **iPhone 16 Pro Max** desde la orilla del
+  campo. Ver `docs/dataset-inspection.md` para análisis completo.
+- **Formato del partido (en esta muestra): 1v1**, con cancha tipo RoboCup MSL,
+  porterías amarillas, vallas negras perimetrales, balón naranja pequeño.
+- **Identidad de equipo se da por bandera vertical** (morada vs. blanca/verde),
+  no por color de chasis. ID switches probables si bandera se ocluye.
+- **Resolución 1920×1080 @ 29.97 fps** — manejable para SAM 3 sin downsampling
+  agresivo.
+- **Pendiente**: bajar 2-3 videos más para verificar si todo es iPhone o hay
+  videos Ray-Ban en otras subcarpetas del Drive.
 
 ## Fases
 
@@ -16,8 +28,9 @@
 - [ ] Definir composición del equipo (3-4 personas)
 - [ ] Reunir documentación: INE/pasaporte de cada integrante,
       perfiles públicos GitHub/LinkedIn
-- [ ] Aceptar gating de SAM 3 en HF: huggingface.co/facebook/sam3
-- [ ] Descargar muestra del dataset y inspeccionar (resolución, fps, duración)
+- [x] Aceptar gating de SAM 3 en HF: huggingface.co/facebook/sam3
+- [x] Descargar muestra del dataset y inspeccionar (resolución, fps, duración)
+      → ver `docs/dataset-inspection.md`
 - [ ] Mandar correo a futbotmx@secihti.mx pidiendo ficha técnica del dataset
 - [ ] Llenar formulario: https://forms.cloud.microsoft/r/m8cwt7D7i0
 - [ ] Hacer público el repo `futbotmx` en GitHub e incluir URL en el formulario

@@ -58,10 +58,16 @@ futbotmx/
 ## Datos del dataset oficial
 
 - **URL videos (Google Drive)**: https://drive.google.com/drive/folders/1TF7-P4rAwPmHFw_TjmNfFU3ORxqnp8CD
-- **Tipo de cámara**: Meta Ray-Ban Glasses (egocéntrica / primera persona)
 - **Estructura**: `Meta_Glasses/{17Abril,18abril}/` (jornadas del torneo regional)
-- **Implicación**: vista cambia con el portador, oclusiones frecuentes, sin
-  cenital. El pipeline debe asumir cámara en movimiento.
+- **Tipo de cámara**: **mixto / por verificar**. La primera muestra
+  inspeccionada (`IMG_9915.MOV`, ver `docs/dataset-inspection.md`) fue grabada
+  con **iPhone 16 Pro Max** sostenido por un espectador a orilla del campo —
+  NO Meta Ray-Ban, pese al nombre de la carpeta. Falta confirmar si el resto
+  del dataset es homogéneo iPhone, homogéneo Ray-Ban, o mixto.
+- **Implicación pipeline**: cámara en movimiento (paneos suaves, ocasionalmente
+  motion blur), oclusiones por manos humanas al inicio/reemplazos, vista
+  oblicua de espectador. Diseñar pipeline robusto a cámara móvil y prever
+  homografía campo → top-down para visualizaciones.
 
 ## Datos pendientes (mandar correo a futbotmx@secihti.mx)
 
