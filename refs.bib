@@ -1,0 +1,229 @@
+% Referencias bibliográficas del proyecto futbotmx
+% Formato BibTeX. Compatible con Pandoc citeproc.
+% Última actualización: 2026-05-16
+
+% =============================================================================
+% SAM 3 / SAM 3.1 — modelo base obligatorio (convocatoria § 3.1.1)
+% =============================================================================
+
+@misc{sam3_meta_2025,
+  author = {Meta AI Research},
+  title  = {{SAM 3: Segment Anything Model 3}},
+  year   = {2025},
+  url    = {https://github.com/facebookresearch/sam3},
+  note   = {Repositorio oficial. Accedido: 2026-05-16}
+}
+
+@misc{sam3_paper_2025,
+  author = {Carion, Nicolas and others},
+  title  = {{SAM 3: Segment Anything with Concepts}},
+  year   = {2025},
+  eprint = {2511.16719},
+  archivePrefix = {arXiv},
+  url    = {https://arxiv.org/abs/2511.16719},
+  note   = {Accedido: 2026-05-16}
+}
+
+@misc{sam31_meta_2026,
+  author = {Meta AI Research},
+  title  = {{SAM 3.1: Faster Real-Time Video Detection and Tracking With Multiplexing and Global Reasoning}},
+  year   = {2026},
+  month  = {March},
+  url    = {https://ai.meta.com/blog/segment-anything-model-3/},
+  note   = {Object multiplexing hasta 16 objetos/forward. Accedido: 2026-05-16}
+}
+
+% =============================================================================
+% Fine-tuning LoRA de SAM 3 (innovación Profesional, convocatoria § 3.7.3)
+% =============================================================================
+
+@misc{sam3_lora_sompote_2025,
+  author = {Sompote, Youwai},
+  title  = {{SAM3\_LoRA}: Finetune SAM 3 with LoRA},
+  year   = {2025},
+  url    = {https://github.com/Sompote/SAM3_LoRA},
+  note   = {LoRA sobre image encoder + mask decoder. Accedido: 2026-05-16}
+}
+
+@misc{medsam3_2025,
+  author = {Liu, Joey S. and others},
+  title  = {{MedSAM3}: Delving into Segment Anything with Medical Concepts},
+  year   = {2025},
+  eprint = {2511.19046},
+  archivePrefix = {arXiv},
+  url    = {https://arxiv.org/abs/2511.19046},
+  note   = {LoRA sobre SAM 3, dominio cerrado. Accedido: 2026-05-16}
+}
+
+@misc{roboflow_sam3_finetune_2025,
+  author = {Roboflow},
+  title  = {Fine-Tune {SAM 3}},
+  year   = {2025},
+  url    = {https://blog.roboflow.com/fine-tune-sam3},
+  note   = {Accedido: 2026-05-16}
+}
+
+% =============================================================================
+% Tracking multi-objeto y balón pequeño
+% =============================================================================
+
+@misc{sportsmot_2023,
+  author = {Cui, Yutao and others},
+  title  = {{SportsMOT}: A Large Multi-Object Tracking Dataset in Multiple Sports Scenes},
+  year   = {2023},
+  eprint = {2304.05170},
+  archivePrefix = {arXiv},
+  url    = {https://arxiv.org/abs/2304.05170},
+  note   = {ICCV 2023. Accedido: 2026-05-16}
+}
+
+@misc{totnet_2025,
+  author = {TOTNet Authors},
+  title  = {{TOTNet}: Occlusion-Aware Temporal Tracking for Robust Ball Detection in Sports Videos},
+  year   = {2025},
+  eprint = {2508.09650},
+  archivePrefix = {arXiv},
+  url    = {https://arxiv.org/abs/2508.09650},
+  note   = {RMSE 7.19 vs 37.30 baseline. Accedido: 2026-05-16}
+}
+
+@misc{diffmot_2024,
+  author = {Lv, Weiyi and others},
+  title  = {{DiffMOT}: A Real-time Diffusion-based Multiple Object Tracker with Non-linear Prediction},
+  year   = {2024},
+  url    = {https://github.com/Kroery/DiffMOT},
+  note   = {CVPR 2024, SportsMOT SOTA. Accedido: 2026-05-16}
+}
+
+@misc{boxmot_2024,
+  author = {Brostrom, Mikel},
+  title  = {{BoxMOT}: Pluggable SOTA Multi-Object Tracking Modules},
+  year   = {2024},
+  url    = {https://github.com/mikel-brostrom/boxmot},
+  note   = {Engloba ByteTrack, OC-SORT, StrongSORT, DeepOCSORT. Accedido: 2026-05-16}
+}
+
+@misc{kalman_tiny_2025,
+  author = {Anónimo},
+  title  = {An Analysis of Kalman Filter based Object Tracking Methods for Fast-Moving Tiny Objects},
+  year   = {2025},
+  eprint = {2509.18451},
+  archivePrefix = {arXiv},
+  url    = {https://arxiv.org/html/2509.18451v1},
+  note   = {Comparativa OC-SORT, ByteTrack, BoTSORT, StrongSORT en objetos pequeños. Accedido: 2026-05-16}
+}
+
+@misc{supervision_roboflow,
+  author = {Roboflow},
+  title  = {{supervision}: reusable computer vision tools},
+  year   = {2024},
+  url    = {https://github.com/roboflow/supervision},
+  note   = {Integración SAM 3 + trackers. Accedido: 2026-05-16}
+}
+
+% =============================================================================
+% Homografía de campo deportivo (rectificación top-down)
+% =============================================================================
+
+@misc{pnlcalib_2024,
+  author = {Gutiérrez-Pérez, Marc and Agudo, Antonio},
+  title  = {{PnLCalib}: Sports Field Registration via Points and Lines Optimization},
+  year   = {2024},
+  month  = {October},
+  eprint = {2404.08401},
+  archivePrefix = {arXiv},
+  url    = {https://arxiv.org/html/2404.08401},
+  note   = {Sucesor de TVCalib. Repo: github.com/mguti97/PnLCalib. Accedido: 2026-05-16}
+}
+
+@misc{tvcalib_2023,
+  author = {Theiner, Jonas and Ewerth, Ralph},
+  title  = {{TVCalib}: Camera Calibration for Sports Field Registration in Soccer},
+  year   = {2023},
+  url    = {https://mm4spa.github.io/tvcalib/},
+  note   = {WACV 2023. Accedido: 2026-05-16}
+}
+
+@misc{soccernet_calib_2024,
+  author = {Falaleev, Nikolay},
+  title  = {SoccerNet Camera Calibration Challenge -- Sportlight Solution},
+  year   = {2024},
+  url    = {https://github.com/NikolasEnt/soccernet-calibration-sportlight},
+  note   = {Ganador 2023, ACM MMSports 2024. Accedido: 2026-05-16}
+}
+
+% =============================================================================
+% Detección de eventos en fútbol (humano y robótico)
+% =============================================================================
+
+@misc{soccernet_bas,
+  author = {SoccerNet Team},
+  title  = {{SoccerNet} Ball Action Spotting},
+  year   = {2024},
+  url    = {https://www.soccer-net.org/tasks/ball-action-spotting},
+  note   = {12 clases de eventos. Accedido: 2026-05-16}
+}
+
+@misc{pathcrf_2025,
+  author = {Kim, Hyunsung and others},
+  title  = {{PathCRF}: Ball-Free Soccer Event Detection},
+  year   = {2025},
+  eprint = {2602.12080},
+  archivePrefix = {arXiv},
+  url    = {https://arxiv.org/html/2602.12080},
+  note   = {Inferencia de posesión sin posición del balón. Accedido: 2026-05-16}
+}
+
+@misc{football_events_springer_2022,
+  author = {Vidal-Codina, Ferran and others},
+  title  = {Automatic Event Detection in Football Using Tracking Data},
+  year   = {2022},
+  url    = {https://link.springer.com/article/10.1007/s12283-022-00381-6},
+  note   = {Rule-based, >90\% accuracy. Accedido: 2026-05-16}
+}
+
+@misc{ssl_autoref,
+  author = {{RoboCup SSL Technical Committee}},
+  title  = {{RoboCup SSL AutoRefs}},
+  year   = {2024},
+  url    = {https://github.com/RoboCup-SSL/ssl-autorefs},
+  note   = {Detección rule-based de eventos en SSL. Accedido: 2026-05-16}
+}
+
+@misc{erforce_autoref,
+  author = {{Robotics Erlangen}},
+  title  = {{ER-Force AutoRef}: Autonomous referee for RoboCup SSL},
+  year   = {2024},
+  url    = {https://github.com/robotics-erlangen/autoref},
+  note   = {Accedido: 2026-05-16}
+}
+
+@misc{robocup2025_ball,
+  author = {Robohub},
+  title  = {Self-supervised learning for soccer ball detection: winners of {RoboCup 2025} best paper award},
+  year   = {2025},
+  url    = {https://robohub.org/self-supervised-learning-for-soccer-ball-detection-and-beyond-interview-with-winners-of-the-robocup-2025-best-paper-award/},
+  note   = {Accedido: 2026-05-16}
+}
+
+% =============================================================================
+% Convocatoria y reglas oficiales del torneo
+% =============================================================================
+
+@misc{convocatoria_futbotmx_2026,
+  author = {{Secihti}},
+  title  = {Convocatoria Copa {FutBotMX} -- Capítulo Visión por Computadora},
+  year   = {2026},
+  month  = {April},
+  url    = {https://secihti.mx/futbotmx/},
+  note   = {Versión final 23 abril 2026. 16 páginas}
+}
+
+@misc{reglas_torneo_futbotmx_2026,
+  author = {{Secihti} and {Federación Mexicana de Robótica}},
+  title  = {Reglas de Fútbol para la Copa {FutBotMX 2026}},
+  year   = {2026},
+  month  = {January},
+  url    = {https://secihti.mx/wp-content/uploads/2026/01/Reglas_Copa_FutBotMX_v3_2026-01-21.pdf},
+  note   = {Versión 3, 21 enero 2026. 18 páginas}
+}
