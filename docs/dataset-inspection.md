@@ -1,8 +1,40 @@
-# Inspección de dataset — muestra inicial
+# Inspección de dataset
 
 > Fecha: 2026-05-16
-> Muestra: `data/raw/IMG_9915.MOV` (un video del Drive oficial)
 > Origen: https://drive.google.com/drive/folders/1TF7-P4rAwPmHFw_TjmNfFU3ORxqnp8CD
+> Muestras locales: `data/raw/IMG_9915.MOV` (video personal del usuario,
+> NO del Drive) + `data/raw/drive_samples/video-XXX.mov` (oficiales).
+
+## Hallazgo crítico tras revisar el Drive (2026-05-16, sesión 2)
+
+El Drive oficial contiene **123 clips cortos verticales** con formato
+muy distinto al video personal IMG_9915 que se inspeccionó inicialmente:
+
+| Atributo | IMG_9915 (personal) | Videos del Drive oficial |
+|----------|---------------------|---------------------------|
+| Container | QuickTime / MOV | QuickTime / MOV |
+| Codec video | H.264 | **HEVC (H.265)** |
+| Resolución | 1920×1080 landscape | **1328-1360 × 1776-1808 portrait** |
+| FPS | 29.97 | **59.94** |
+| Duración | 96 s (partido) | **3-14 s (jugada individual)** |
+| Nombre | `IMG_9915.MOV` (iPhone genérico) | `video-XXX_singular_display.mov` |
+| Total | 1 archivo | **123 archivos** |
+
+Visualmente: misma cancha, mismos robots, misma audiencia (logos
+"UT Puebla", "ROBÓTICA"). Confirmado mismo torneo. El IMG_9915 sirve
+solo como referencia técnica de pipeline; la evaluación se basa en los
+clips oficiales del Drive.
+
+**Implicación de arquitectura**:
+- Pipeline debe ser agnóstico a orientación (portrait + landscape).
+- Procesar clips cortos en batch (no asumir partidos largos).
+- Recalibrar homografía por video (cámaras y ángulos variables).
+- HEVC se decodifica nativo con OpenCV + ffmpeg ya instalado.
+
+## Resumen ejecutivo (IMG_9915, referencia)
+
+El video personal **no fue grabado con Meta Ray-Ban Glasses** sino con un
+**iPhone 16 Pro Max** sostenido por un espectador a la orilla del campo.
 
 ## Resumen ejecutivo
 
