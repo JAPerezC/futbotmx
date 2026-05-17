@@ -86,10 +86,27 @@ EVENT_COLOR = {
 
 
 def overlay_polygon(image, corners, color=(0, 200, 255)):
+    """Dibuja el cuadrilátero de las 4 esquinas, clippeado al frame.
+
+    Evita el efecto "triángulo estirado" cuando una esquina está fuera
+    del frame: cv2.clipLine recorta cada segmento al rectángulo visible.
+    """
     if corners is None or len(corners) < 4:
         return
-    pts = corners.astype(np.int32).reshape(-1, 1, 2)
-    cv2.polylines(image, [pts], isClosed=True, color=color, thickness=2)
+    h, w = image.shape[:2]
+    pts = corners.astype(np.int32)
+    rect = (0, 0, w, h)
+    for i in range(4):
+        p1 = tuple(pts[i])
+        p2 = tuple(pts[(i + 1) % 4])
+        visible, q1, q2 = cv2.clipLine(rect, p1, p2)
+        if visible:
+            cv2.line(image, q1, q2, color, 2, cv2.LINE_AA)
+    # Marca las esquinas que SÍ están dentro del frame
+    for x, y in pts:
+        if 0 <= x < w and 0 <= y < h:
+            cv2.circle(image, (int(x), int(y)), 8, color, -1)
+            cv2.circle(image, (int(x), int(y)), 8, (0, 0, 0), 2)
 
 
 def draw_track(image, bbox, track_id, team, conf):
