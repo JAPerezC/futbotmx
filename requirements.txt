@@ -14,13 +14,16 @@ pillow==12.2.0
 # torch==2.11.0+cu128
 # torchvision==0.26.0+cu128
 
-# --- SAM 3.1 (pendiente instalación tras validación local) ---
-# transformers>=4.45
-# huggingface-hub>=0.24
+# --- SAM 3.1 (verificado 2026-05-16) ---
+transformers==5.8.1
+huggingface_hub==1.15.0
 
-# --- Tracking (pendiente) ---
-# boxmot>=12.0       # incluye OC-SORT, ByteTrack, StrongSORT, DeepOCSORT
-# supervision>=0.27  # Roboflow, integra SAM 3 + trackers
+# --- Tracking (verificado 2026-05-16) ---
+boxmot==18.0.0       # incluye OcSort, ByteTrack, StrongSort, DeepOcSort, BoTSort
+supervision==0.28.0  # Roboflow, integra SAM 3 + trackers
+
+# --- Computación científica ---
+scipy==1.17.1
 
 # --- Análisis y visualización (pendiente cuando se necesite) ---
 # scipy>=1.11
@@ -30,6 +33,7 @@ pillow==12.2.0
 
 # --- Utilidades ---
 loguru==0.7.3
+truststore>=0.9    # SSL via cert store del SO (necesario tras Norton/Kaspersky SSL inspection)
 
 # --- Dev / tests ---
 pytest==9.0.3

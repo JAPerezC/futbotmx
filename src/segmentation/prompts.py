@@ -23,6 +23,9 @@ ALL_PROMPTS: Final[dict[str, str]] = {
 }
 
 # Prompts compuestos para casos avanzados (cascada de detección)
-PROMPT_ALL_ROBOTS: Final[str] = "small mobile soccer robot with a colored flag"
-PROMPT_GOAL_YELLOW: Final[str] = "yellow rectangular goal wall"
-PROMPT_GOAL_BLUE: Final[str] = "blue rectangular goal wall"
+# Empíricamente verificado el 2026-05-16 sobre frame_24s.jpg:
+# "soccer robot" da scores 0.94/0.87 mientras prompts más elaborados bajan
+# a 0.34. SAM 3 prefiere prompts simples + cascada de re-ID por color.
+PROMPT_ALL_ROBOTS: Final[str] = "soccer robot"
+PROMPT_GOAL_YELLOW: Final[str] = "yellow goal"
+PROMPT_GOAL_BLUE: Final[str] = "blue goal"
