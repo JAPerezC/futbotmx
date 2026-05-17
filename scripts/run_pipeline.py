@@ -59,7 +59,7 @@ from src.segmentation.sam3 import (
     segment_with_text,
 )
 from src.tracking.ball import BallTracker
-from src.tracking.reid import classify_team
+from src.tracking.reid import AdaptiveTeamClassifier, _dominant_hue
 from src.tracking.robots import RobotTracker
 from src.utils.calib import (
     compute_homography,
@@ -214,6 +214,24 @@ def parse_args():
     p.add_argument("--stride", type=int, default=3, help="leer 1 de cada N frames")
     p.add_argument("--model", default="facebook/sam3")
     p.add_argument("--device", default=None)
+    p.add_argument(
+        "--robot-score-min",
+        type=float,
+        default=0.5,
+        help="filtro de score SAM 3 para detecciones de robots (defecto 0.5)",
+    )
+    p.add_argument(
+        "--robot-area-min-frac",
+        type=float,
+        default=0.001,
+        help="área mínima del bbox como fracción del frame (defecto 0.1%)",
+    )
+    p.add_argument(
+        "--robot-area-max-frac",
+        type=float,
+        default=0.05,
+        help="área máxima del bbox como fracción del frame (defecto 5%)",
+    )
     return p.parse_args()
 
 
@@ -249,6 +267,7 @@ def main():
 
     robot_tracker = RobotTracker(min_hits=1, det_thresh=0.2, iou_threshold=0.3)
     ball_tracker = BallTracker(dt=args.stride / meta.fps, max_missing_frames=20)
+    team_clf = AdaptiveTeamClassifier(warmup_frames=8, hue_separation_min=20)
 
     out_video = args.out / "annotated.mp4"
     fps_out = meta.fps / args.stride
@@ -289,7 +308,31 @@ def main():
                 frame, [BALL, PROMPT_ALL_ROBOTS], processor, model, threshold=0.2
             )
             ball_masks = seg.get(BALL, [])
-            robot_masks = seg.get(PROMPT_ALL_ROBOTS, [])
+            robot_masks_raw = seg.get(PROMPT_ALL_ROBOTS, [])
+
+            # Filtrar robots: score alto + área plausible (descarta balón,
+            # cajas amarillas, parches grandes que SAM 3 confunde).
+            frame_area = frame.shape[0] * frame.shape[1]
+            area_min = args.robot_area_min_frac * frame_area
+            area_max = args.robot_area_max_frac * frame_area
+            robot_masks = []
+            for m in robot_masks_raw:
+                if m.score < args.robot_score_min:
+                    continue
+                ys, xs = np.where(m.mask)
+                if xs.size == 0:
+                    continue
+                w = xs.max() - xs.min()
+                h = ys.max() - ys.min()
+                area = w * h
+                if area < area_min or area > area_max:
+                    continue
+                # Robots con bandera suelen ser ligeramente más altos que anchos.
+                # Pero ser permisivo (0.4 a 4.0) por perspectiva.
+                aspect = h / max(1, w)
+                if aspect < 0.4 or aspect > 4.0:
+                    continue
+                robot_masks.append(m)
 
             # 2. Balón: SAM 3 → HSV fallback
             ball_xy_img = None
@@ -321,28 +364,32 @@ def main():
                 dets = np.empty((0, 6))
             tracks = robot_tracker.update(dets, frame)
 
-            # 4. Re-ID por bandera + proyección a mundo
+            # 4. Re-ID por bandera + proyección a mundo (clasificador adaptativo)
             robots_mm_this_frame = {}
             teams_this_frame = {}
             tracks_record = []
             for tr in tracks:
-                ts = classify_team(frame, tr.bbox_xyxy)
+                hue = _dominant_hue(frame, tr.bbox_xyxy)
+                team_clf.observe(tr.track_id, hue)
+                team_label = team_clf.assign(tr.track_id)
                 # proyectar centroide a mundo
                 world_xy = project_points(tr.centroid_img.reshape(1, 2), H)[0]
                 robots_mm_this_frame[tr.track_id] = world_xy
-                teams_this_frame[tr.track_id] = ts.label
+                teams_this_frame[tr.track_id] = team_label
                 robot_positions_mm[tr.track_id].append((t_now, world_xy))
-                robot_team_history[tr.track_id].append(ts.label)
+                robot_team_history[tr.track_id].append(team_label)
                 tracks_record.append(
                     {
                         "track_id": tr.track_id,
                         "bbox_xyxy": tr.bbox_xyxy.tolist(),
                         "centroid_img": tr.centroid_img.tolist(),
                         "centroid_mm": world_xy.tolist(),
-                        "team": ts.label,
+                        "team": team_label,
+                        "team_hue": hue,
                         "confidence": tr.confidence,
                     }
                 )
+            team_clf.end_frame()
 
             ball_mm = None
             if ball_state.found:
