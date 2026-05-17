@@ -9,10 +9,19 @@ Visión por Computadora** (Secihti · Meta · CENTRO).
 ## TL;DR
 
 Pipeline end-to-end que toma video crudo de un partido de fútbol robótico
-y produce: segmentación SAM 3.1 de campo/balón/robots, tracking
-multi-objeto con IDs persistentes, rectificación a vista top-down,
-detección rule-based de eventos (kick, gol, retención, falta de
-progreso, robot dañado) y visualizaciones (heatmap, trails, Voronoi).
+y produce:
+
+- **Segmentación** SAM 3.1 (Meta) de campo, balón y robots — con
+  half-precision en GPU (RTX 5080, ~2.5× speedup, mismas detecciones).
+- **Tracking** OC-SORT (robots) + Kalman 2D (balón) con IDs persistentes.
+- **Re-ID adaptativo** por color de bandera (k-means HSV sin hardcoding).
+- **Homografía 4-puntos** auto-detectada → coordenadas mundo (mm).
+- **Eventos del reglamento**: gol, kick, pase, intercepción, retención,
+  colisión, no_progress, robot dañado (8 tipos detectables).
+- **Estadísticas en tiempo real**: score A-B, % posesión por equipo,
+  distancia y velocidad de cada robot y del balón.
+- **Visualizaciones**: video anotado con banner persistente + heatmaps
+  por equipo + trails top-down + Voronoi + **dashboard HTML interactivo**.
 
 **Reel Instagram**: pendiente de publicación, link aquí antes del cierre.
 
@@ -68,16 +77,33 @@ dataset oficial. Documentado en `docs/literature-review.md` § 2.
 
 | Métrica | Valor | Comentario |
 |---------|-------|------------|
-| Tests unitarios | **38/38 + 13/13 = 51/51 ✅** | (38 baselines + 13 trackers) |
-| Carga modelo SAM 3.1 | 60 s primera vez, 5 s con cache | Drop-in para SAM 3.1 |
-| Inferencia SAM 3.1 (1080p) | 0.5-1.5 s por prompt | RTX 5080 Laptop, 16 GB |
-| Pipeline efectivo | ~0.25 fps con 2 prompts | Procesa 96 s en ~6 min |
-| Detección balón (HSV+SAM 3) | confianza 0.87-1.00 | Robusto a oclusiones cortas |
-| Tracking robots | IDs persistentes entre frames | OC-SORT estable |
+| Tests unitarios | **80/80 ✅** | cobertura por módulo, pasa con `pytest tests/` |
+| Smoke test reproducible | ~13 s | `scripts/smoke_test.py` valida 12 componentes |
+| Carga modelo SAM 3.1 | 13 s primera vez, 5 s con cache | fp16 reduce VRAM a 1.67 GB |
+| Inferencia SAM 3.1 (portrait 1808p, 2 prompts) | ~1 s por frame | RTX 5080 + fp16 |
+| Pipeline efectivo | **~1.06 fps** con stride 5 (~2.5× vs fp32) | 100 s → ~10 min |
+| Detección balón | conf 0.47-1.00, fallback HSV | robusto a oclusiones cortas |
+| Tracking robots | IDs persistentes + re-ID HSV adaptativo | bajos ID-switches en clips ≤ 30 s |
+| Eventos detectados (video-1054 110 s) | 1 gol, 61 kicks, 9 no_progress | reglamento § 4.4 |
+| Eventos detectados (video-988 29 s) | 1 retención, 169 kicks, 3 no_progress | falta § 4.4.1 detectada |
 
-Capturas y videos en `data/processed/runs/<video>/`. El video lado a
-lado para el jurado (≤2 min) se genera con
-`scripts/make_side_by_side.py`.
+Outputs por run en `data/processed/runs/<videoname>/`:
+
+| Archivo | Contenido |
+|---------|-----------|
+| `annotated.mp4` | Video original con bboxes + balón + banner persistente (score/posesión/tiempo) + banners de eventos |
+| `dashboard.html` | **Dashboard interactivo plotly** standalone — abrir en cualquier browser |
+| `tracks.json` | Trayectorias por frame en imagen + mundo (mm) |
+| `events.json` | Lista de eventos con timestamp, tipo, posición mm, metadata |
+| `summary.json` | Métricas agregadas: score, posesión %, distancia/velocidad balón y por robot, conteos |
+| `heatmap_ball.png` · `heatmap_robots.png` | Densidad top-down con Gaussian blur |
+| `heatmap_team_A.png` · `heatmap_team_B.png` | Densidad **por equipo** (colormap por team) |
+| `trails.png` | Trayectorias completas top-down con porterías amarilla/azul |
+| `voronoi_final.png` | Control de espacio en último frame, coloreado por equipo |
+
+El video lado a lado para el jurado (≤ 2 min) se genera con
+`scripts/make_side_by_side.py`. Para reproducir velocidad real con
+frame doubling: usar ffmpeg `[1:v]fps=fps=60` filter.
 
 ## Hardware verificado
 
@@ -116,6 +142,8 @@ py -3.12 -m venv .venv
 
 # 8. Verificar
 .venv/Scripts/python -m pytest tests/ -q
+# Smoke test reproducible: confirma versiones + GPU + cada componente
+.venv/Scripts/python scripts/smoke_test.py
 ```
 
 ## Reproducir el demo
