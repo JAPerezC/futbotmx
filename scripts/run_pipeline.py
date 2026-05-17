@@ -44,7 +44,9 @@ from src.events.possession import POSSESSION_RADIUS_MM, closest_robot_possession
 from src.events.rules import (
     DAMAGED_TIME_S,
     Event,
+    detect_collisions,
     detect_kick,
+    detect_pass_or_interception,
     is_damaged_robot,
     is_in_goal_roi,
     is_kick,
@@ -58,6 +60,7 @@ from src.segmentation.sam3 import (
     masks_to_bboxes,
     segment_with_text,
 )
+from src.metrics.stats import MatchStats
 from src.tracking.ball import BallTracker
 from src.tracking.reid import AdaptiveTeamClassifier, _dominant_hue
 from src.tracking.robots import RobotTracker
@@ -67,7 +70,8 @@ from src.utils.calib import (
 )
 from src.utils.field_detect import detect_field_corners
 from src.utils.io import VideoWriter, probe, read_frames
-from src.viz.heatmap import render_heatmap
+from src.viz.dashboard import render_dashboard
+from src.viz.heatmap import render_heatmap, render_heatmap_by_team
 from src.viz.trails import render_trails
 from src.viz.voronoi import render_voronoi
 
@@ -81,8 +85,88 @@ EVENT_COLOR = {
     "retention": (50, 50, 255),
     "no_progress": (180, 180, 0),
     "damaged": (255, 100, 0),
+    "pass": (200, 100, 255),
+    "interception": (255, 100, 200),
+    "collision": (0, 0, 255),
     "possession": (255, 255, 255),
 }
+
+
+def draw_stats_banner(image, stats: MatchStats, t_s: float, duration_s: float):
+    """Banner persistente arriba con score + posesión + tiempo.
+
+    Sirve como narrativa visual del partido en cualquier frame (§ 3.5.2).
+    """
+    h, w = image.shape[:2]
+    bh = 75
+    overlay = image.copy()
+    cv2.rectangle(overlay, (0, 0), (w, bh), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.55, image, 0.45, 0, image)
+    # Score
+    score = f"A {stats.score_a} - {stats.score_b} B"
+    cv2.putText(
+        image,
+        score,
+        (16, 36),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.0,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    # Posesión
+    pa, pb = stats.possession_pct_a, stats.possession_pct_b
+    pos_text = f"pos A {pa:.0f}% | B {pb:.0f}%"
+    cv2.putText(
+        image,
+        pos_text,
+        (16, 64),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (200, 200, 200),
+        1,
+        cv2.LINE_AA,
+    )
+    # Tiempo
+    time_text = f"t = {t_s:5.1f} / {duration_s:5.1f}s"
+    (tw, _), _ = cv2.getTextSize(time_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+    cv2.putText(
+        image,
+        time_text,
+        (w - tw - 16, 36),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        (255, 255, 255),
+        1,
+        cv2.LINE_AA,
+    )
+    # Conteo eventos compacto
+    counts = stats.event_counts
+    summary_parts = [
+        f"{n}:{counts[n]}"
+        for n in (
+            "goal",
+            "kick",
+            "pass",
+            "interception",
+            "retention",
+            "collision",
+            "no_progress",
+        )
+        if counts.get(n, 0) > 0
+    ]
+    if summary_parts:
+        evt_text = "  ".join(summary_parts)
+        cv2.putText(
+            image,
+            evt_text,
+            (w - 600, 64),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (180, 180, 180),
+            1,
+            cv2.LINE_AA,
+        )
 
 
 def overlay_polygon(image, corners, color=(0, 200, 255)):
@@ -285,6 +369,7 @@ def main():
     robot_tracker = RobotTracker(min_hits=1, det_thresh=0.2, iou_threshold=0.3)
     ball_tracker = BallTracker(dt=args.stride / meta.fps, max_missing_frames=20)
     team_clf = AdaptiveTeamClassifier(warmup_frames=8, hue_separation_min=20)
+    match_stats = MatchStats()
 
     out_video = args.out / "annotated.mp4"
     fps_out = meta.fps / args.stride
@@ -300,6 +385,12 @@ def main():
     # Buffers para detecciones de eventos
     ball_retention_start = None
     ball_retention_robot = None
+    # Para pase/intercepción
+    prev_owner_track: int | None = None
+    prev_owner_team: str | None = None
+    prev_ball_xy_owner_loss: np.ndarray | None = None
+    # Para deduplicar colisiones
+    last_collision_t: dict[tuple[int, int], float] = {}
 
     record = {
         "video": args.video.name,
@@ -413,6 +504,15 @@ def main():
                 xy_img = np.array([[ball_state.cx, ball_state.cy]])
                 ball_mm = project_points(xy_img, H)[0]
                 ball_positions_mm.append((t_now, ball_mm))
+                match_stats.update_ball_position(ball_mm, t_now)
+
+            # Acumular posiciones de robots en MatchStats
+            for tr in tracks:
+                w_xy = robots_mm_this_frame.get(tr.track_id)
+                if w_xy is not None:
+                    match_stats.update_robot_position(
+                        tr.track_id, w_xy, teams_this_frame.get(tr.track_id), t_now
+                    )
 
             # 5. Detección de eventos
             current_events = []
@@ -435,33 +535,88 @@ def main():
                     )
                     events.append(ev)
                     current_events.append(ev)
+                    match_stats.register_event("kick")
 
-            # Gol: balón en ROI portería
+            # Gol: balón en ROI portería (se asigna al último poseedor, si lo hay)
             if ball_mm is not None:
                 for side in ("left", "right"):
                     if is_in_goal_roi(ball_mm, side):
+                        # Anti-spam: 1 gol cada 3 segundos
+                        if (
+                            events
+                            and events[-1].type == "goal"
+                            and t_now - events[-1].t < 3.0
+                        ):
+                            break
                         last_event_id += 1
+                        scoring_team = prev_owner_team
                         ev = Event(
                             t=t_now,
                             type="goal",
-                            actors=[],
+                            actors=[prev_owner_track] if prev_owner_track else [],
                             position_mm=(float(ball_mm[0]), float(ball_mm[1])),
                             confidence=1.0,
-                            meta={"side": side},
+                            meta={"side": side, "scoring_team": scoring_team},
                         )
                         events.append(ev)
                         current_events.append(ev)
+                        match_stats.register_event("goal", team=scoring_team)
+                        break
+
+            # Colisiones entre robots (anti-spam 0.5s por par)
+            for a, b, d in detect_collisions(robots_mm_this_frame):
+                key = (a, b)
+                last_t = last_collision_t.get(key, -1e9)
+                if t_now - last_t > 0.5:
+                    last_collision_t[key] = t_now
+                    last_event_id += 1
+                    ev = Event(
+                        t=t_now,
+                        type="collision",
+                        actors=[a, b],
+                        position_mm=(
+                            float(
+                                (
+                                    robots_mm_this_frame[a][0]
+                                    + robots_mm_this_frame[b][0]
+                                )
+                                / 2
+                            ),
+                            float(
+                                (
+                                    robots_mm_this_frame[a][1]
+                                    + robots_mm_this_frame[b][1]
+                                )
+                                / 2
+                            ),
+                        ),
+                        confidence=1.0 - d / 50.0,
+                        meta={"distance_mm": d},
+                    )
+                    events.append(ev)
+                    current_events.append(ev)
+                    match_stats.register_event("collision")
 
             # Posesión
             pos = None
+            current_owner_track = None
+            current_owner_team = None
             if ball_mm is not None and robots_mm_this_frame:
                 pos = closest_robot_possession(
                     ball_mm, robots_mm_this_frame, teams_this_frame
                 )
-                # Retención: si mismo robot por > T segundos
                 if pos.track_id is not None and pos.distance_mm < POSSESSION_RADIUS_MM:
+                    current_owner_track = pos.track_id
+                    current_owner_team = pos.team
+                # Acumular tiempo de posesión
+                match_stats.update_possession(
+                    current_owner_team, args.stride / meta.fps
+                )
+
+                # Retención: si mismo robot por > T segundos
+                if current_owner_track is not None:
                     if (
-                        ball_retention_robot == pos.track_id
+                        ball_retention_robot == current_owner_track
                         and ball_retention_start is not None
                     ):
                         elapsed = t_now - ball_retention_start
@@ -470,20 +625,68 @@ def main():
                             ev = Event(
                                 t=t_now,
                                 type="retention",
-                                actors=[pos.track_id],
+                                actors=[current_owner_track],
                                 position_mm=(float(ball_mm[0]), float(ball_mm[1])),
                                 confidence=min(elapsed / 3.0, 1.0),
-                                meta={"duration_s": elapsed, "team": pos.team},
+                                meta={
+                                    "duration_s": elapsed,
+                                    "team": current_owner_team,
+                                },
                             )
                             events.append(ev)
                             current_events.append(ev)
-                            ball_retention_start = None  # reset
+                            match_stats.register_event("retention")
+                            ball_retention_start = None
                     else:
-                        ball_retention_robot = pos.track_id
+                        ball_retention_robot = current_owner_track
                         ball_retention_start = t_now
                 else:
                     ball_retention_robot = None
                     ball_retention_start = None
+
+            # Pase / Intercepción al detectar cambio de poseedor
+            if (
+                current_owner_track is not None
+                and prev_owner_track is not None
+                and current_owner_track != prev_owner_track
+            ):
+                kind = detect_pass_or_interception(
+                    prev_owner_track,
+                    prev_owner_team,
+                    current_owner_track,
+                    current_owner_team,
+                    prev_ball_xy_owner_loss,
+                    ball_mm,
+                )
+                if kind in ("pass", "interception"):
+                    last_event_id += 1
+                    ev = Event(
+                        t=t_now,
+                        type=kind,
+                        actors=[prev_owner_track, current_owner_track],
+                        position_mm=(float(ball_mm[0]), float(ball_mm[1])),
+                        confidence=0.85,
+                        meta={
+                            "from_team": prev_owner_team,
+                            "to_team": current_owner_team,
+                        },
+                    )
+                    events.append(ev)
+                    current_events.append(ev)
+                    match_stats.register_event(kind)
+
+            # Actualizar memoria de poseedor anterior
+            if current_owner_track is not None:
+                if current_owner_track != prev_owner_track:
+                    prev_owner_track = current_owner_track
+                    prev_owner_team = current_owner_team
+                    prev_ball_xy_owner_loss = (
+                        ball_mm.copy() if ball_mm is not None else None
+                    )
+                else:
+                    # mismo dueño, actualizar última posición conocida
+                    if ball_mm is not None:
+                        prev_ball_xy_owner_loss = ball_mm.copy()
 
             # No progress (ventana 5s)
             if len(ball_positions_mm) >= int(5 / (args.stride / meta.fps)):
@@ -514,6 +717,7 @@ def main():
                         )
                         events.append(ev)
                         current_events.append(ev)
+                        match_stats.register_event("no_progress")
 
             # Robot dañado (ventana 60s)
             for tid, history in robot_positions_mm.items():
@@ -547,6 +751,9 @@ def main():
                         )
                         events.append(ev)
                         current_events.append(ev)
+                        match_stats.register_event("damaged")
+
+            match_stats.end_frame(t_now)
 
             # 6. Anotar frame
             annotated = frame.copy()
@@ -561,9 +768,12 @@ def main():
                 )
             draw_ball(annotated, ball_state)
             draw_possession_info(annotated, pos)
-            # Banner de eventos recientes (últimos 0.6 s)
+            # Banner persistente arriba (score + posesión + tiempo)
+            draw_stats_banner(annotated, match_stats, t_now, duration)
+            # Banner de eventos recientes (último, en línea aparte)
             recent = [e for e in events if t_now - e.t < 0.6]
-            draw_event_banner(annotated, recent)
+            if recent:
+                draw_event_banner(annotated, recent)
             writer.write(annotated)
 
             record["frames"].append(
@@ -636,6 +846,11 @@ def main():
             str(args.out / "heatmap_ball.png"), render_heatmap(all_ball_positions)
         )
 
+    # Heatmaps por equipo
+    team_heatmaps = render_heatmap_by_team(dict(match_stats.positions_by_team_mm))
+    for team, img_hm in team_heatmaps.items():
+        cv2.imwrite(str(args.out / f"heatmap_team_{team}.png"), img_hm)
+
     trails_traj = {
         tid: np.array([xy for _, xy in hist])
         for tid, hist in robot_positions_mm.items()
@@ -666,21 +881,34 @@ def main():
             render_voronoi(last_robots, last_teams, ball_mm=last_ball),
         )
 
-    # Resumen
-    from collections import Counter
-
-    event_counts = Counter(e.type for e in events)
+    # Resumen ampliado (incluye stats agregadas + run metadata)
     summary = {
+        "video": args.video.name,
+        "duration_s": duration,
+        "stride": args.stride,
+        "fps_in": meta.fps,
+        "fps_out": fps_out,
         "frames_processed": n_processed,
         "pipeline_time_s": pipeline_time,
         "effective_fps": n_processed / pipeline_time if pipeline_time > 0 else 0,
         "events_total": len(events),
-        "events_by_type": dict(event_counts),
-        "tracks_seen": len(robot_positions_mm),
-        "ball_positions_world": len(ball_positions_mm),
+        **match_stats.to_dict(),
     }
     with open(args.out / "summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
+
+    # Dashboard HTML
+    try:
+        dashboard_path = render_dashboard(
+            summary,
+            events_json,
+            record["frames"],
+            output_path=args.out / "dashboard.html",
+            video_name=args.video.name,
+        )
+        print(f"  dashboard: {dashboard_path}")
+    except Exception as e:
+        print(f"  WARN: dashboard falló: {e}")
 
     print("\n=== RESUMEN ===")
     print(json.dumps(summary, indent=2, ensure_ascii=False))

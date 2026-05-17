@@ -30,7 +30,21 @@ FIELD_LENGTH_MM = 2190
 FIELD_WIDTH_MM = 1580
 GOAL_HALF_WIDTH_MM = 300  # portería 60 cm centrada
 
-EventType = Literal["goal", "kick", "retention", "no_progress", "damaged", "kickoff"]
+EventType = Literal[
+    "goal",
+    "kick",
+    "retention",
+    "no_progress",
+    "damaged",
+    "kickoff",
+    "pass",
+    "interception",
+    "collision",
+]
+
+# Eventos nuevos
+PASS_MIN_TRANSLATION_MM = 300.0  # balón se mueve >30 cm para considerar pase
+COLLISION_DIST_MM = 50.0  # 2 robots en contacto (cuerpo a cuerpo)
 
 
 @dataclass(frozen=True)
@@ -118,3 +132,78 @@ def is_damaged_robot(
     if len(robot_velocities_mm_s) < n:
         return False
     return bool(np.all(robot_velocities_mm_s[-n:] < vel_threshold_mm_s))
+
+
+# ============================================================================
+# Eventos nuevos: pase, intercepción, colisión
+# ============================================================================
+
+
+def detect_pass_or_interception(
+    prev_owner_track: int | None,
+    prev_owner_team: str | None,
+    curr_owner_track: int | None,
+    curr_owner_team: str | None,
+    ball_xy_prev_mm: np.ndarray | None,
+    ball_xy_curr_mm: np.ndarray,
+    min_translation_mm: float = PASS_MIN_TRANSLATION_MM,
+) -> str | None:
+    """Devuelve 'pass', 'interception' o None tras un cambio de posesión.
+
+    Args:
+        prev_owner_track: track_id del dueño del balón en frame anterior.
+        prev_owner_team: equipo del dueño anterior.
+        curr_owner_track: track_id actual.
+        curr_owner_team: equipo actual.
+        ball_xy_prev_mm: posición del balón cuando lo perdió el anterior.
+        ball_xy_curr_mm: posición del balón ahora.
+        min_translation_mm: distancia mínima que debe recorrer el balón.
+
+    Returns:
+        'pass' si mismo equipo recibe y balón se desplazó.
+        'interception' si equipo contrario recibe y balón se desplazó.
+        None si no hubo cambio significativo.
+    """
+    if (
+        prev_owner_track is None
+        or curr_owner_track is None
+        or prev_owner_team is None
+        or curr_owner_team is None
+    ):
+        return None
+    if prev_owner_track == curr_owner_track:
+        return None  # mismo dueño, no es pase ni intercepción
+    if ball_xy_prev_mm is None:
+        return None
+    translation = float(
+        np.linalg.norm(np.asarray(ball_xy_curr_mm) - np.asarray(ball_xy_prev_mm))
+    )
+    if translation < min_translation_mm:
+        return None
+    if prev_owner_team == curr_owner_team:
+        return "pass"
+    return "interception"
+
+
+def detect_collisions(
+    robots_xy_mm: dict[int, np.ndarray],
+    dist_threshold_mm: float = COLLISION_DIST_MM,
+) -> list[tuple[int, int, float]]:
+    """Lista pares de robots en colisión.
+
+    Args:
+        robots_xy_mm: dict {track_id: posición mm}.
+        dist_threshold_mm: distancia centroidal para considerar colisión.
+
+    Returns:
+        Lista de tuplas (track_id_a, track_id_b, distancia_mm), una por colisión
+        única (a < b para evitar duplicados).
+    """
+    ids = sorted(robots_xy_mm.keys())
+    collisions = []
+    for i, a in enumerate(ids):
+        for b in ids[i + 1 :]:
+            d = float(np.linalg.norm(robots_xy_mm[a] - robots_xy_mm[b]))
+            if d < dist_threshold_mm:
+                collisions.append((a, b, d))
+    return collisions

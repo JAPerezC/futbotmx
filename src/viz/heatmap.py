@@ -70,3 +70,35 @@ def _draw_field_overlay(img: np.ndarray, px_per_mm: float) -> np.ndarray:
     r = int(round(300 * px_per_mm))
     cv2.circle(out, (cx, h // 2), r, (255, 255, 255), 1)
     return out
+
+
+# Colormaps por equipo
+COLORMAP_TEAM = {
+    "A": cv2.COLORMAP_PINK,  # tonalidad morada/rosa
+    "B": cv2.COLORMAP_BONE,  # tonalidad gris/blanca
+}
+
+
+def render_heatmap_by_team(
+    positions_by_team_mm: dict[str, list],
+    px_per_mm: float = 0.4,
+    blur_sigma_px: int = 21,
+) -> dict[str, np.ndarray]:
+    """Renderiza un heatmap por cada equipo presente en el dict.
+
+    Args:
+        positions_by_team_mm: dict {team_label: [posiciones mm]}.
+
+    Returns:
+        dict {team_label: imagen BGR (H, W, 3)}.
+    """
+    out = {}
+    for team, positions in positions_by_team_mm.items():
+        if not team or not positions:
+            continue
+        arr = np.asarray(positions, dtype=np.float64).reshape(-1, 2)
+        cmap = COLORMAP_TEAM.get(team, cv2.COLORMAP_JET)
+        out[team] = render_heatmap(
+            arr, px_per_mm=px_per_mm, blur_sigma_px=blur_sigma_px, colormap=cmap
+        )
+    return out
