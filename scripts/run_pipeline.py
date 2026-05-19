@@ -61,7 +61,7 @@ from src.segmentation.sam3 import (
 )
 from src.metrics.stats import MatchStats
 from src.tracking.ball import BallTracker
-from src.tracking.reid import AdaptiveTeamClassifier
+from src.tracking.reid import AdaptiveTeamClassifier, _dominant_feature  # noqa: F401
 from src.tracking.robots import RobotTracker
 from src.utils.calib import (
     compute_homography,
