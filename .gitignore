@@ -72,3 +72,8 @@ htmlcov/
 # OS
 desktop.ini
 $RECYCLE.BIN/
+
+# Handoff artifacts (estado local de sesión, no compartir)
+GIT_REMOTE
+TODO.org
+docs/futbotmx-session-summary.org
