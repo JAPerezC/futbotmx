@@ -55,7 +55,7 @@ de cada decisión con literatura 2024-2026 en
 
 ## Innovación sobre SAM 3 (requisito Profesional § 3.7.3)
 
-Cubrimos **tres** de las cuatro líneas oficiales:
+Cubrimos **las cuatro** líneas oficiales:
 
 1. **Prompts y contexto**: validamos empíricamente que prompts simples
    (`"soccer robot"`, score 0.94) superan a prompts elaborados
@@ -63,21 +63,28 @@ Cubrimos **tres** de las cuatro líneas oficiales:
    Diseño de prompts especializado al dominio en
    [`src/segmentation/prompts.py`](src/segmentation/prompts.py).
 2. **Integración con trackers**: cascada SAM 3.1 → OC-SORT (robots) +
-   Kalman 2D (balón) + clasificador HSV (identidad de equipo).
-3. **Post-procesamiento geométrico**: homografía clásica con líneas
-   blancas conocidas → coordenadas mundo (mm) → cálculo de velocidad,
-   posesión por proximidad, detección rule-based de eventos al estilo
-   de los AutoRefs de RoboCup SSL.
+   Kalman 2D (balón) + clasificador HSV adaptativo con votación
+   temporal (identidad de equipo).
+3. **Post-procesamiento geométrico**: detección de esquinas reales por
+   líneas blancas Hough con fallback a convex hull (v2); porterías
+   detectadas por color (amarilla/azul) como bbox real para ROI de gol
+   (no virtual). Homografía 4-puntos imagen ↔ mundo (mm) → velocidad,
+   posesión por proximidad, eventos rule-based al estilo AutoRefs SSL.
+4. **Fine-tuning LoRA** sobre SAM 3.1: rank=8, target q/k/v/o_proj de
+   vision_encoder + mask_decoder (3.88M params, 0.46% del modelo).
+   Dataset pseudo-supervisado de 524 máscaras curadas (score ≥ 0.6 +
+   filtros geométricos) sobre 15 videos del Drive oficial. Flujo
+   documentado en [`docs/lora-finetuning.md`](docs/lora-finetuning.md).
 
-**Fine-tuning LoRA** (4ª línea): infraestructura lista (rank 8 sobre
-encoder+decoder, ~12 GB VRAM), pendiente de anotar 200-300 frames del
-dataset oficial. Documentado en `docs/literature-review.md` § 2.
+Estado del arte 2026 cruzado vía survey externo + bibliografía
+([`refs.bib`](refs.bib)) con foco en `teamaware_sam_2025`,
+`sam3_lora_sompote`, `pnlcalib_2024`, `handheld_football_mot_2025`.
 
 ## Resultados
 
 | Métrica | Valor | Comentario |
 |---------|-------|------------|
-| Tests unitarios | **80/80 ✅** | cobertura por módulo, pasa con `pytest tests/` |
+| Tests unitarios | **83/83 ✅** | cobertura por módulo, pasa con `pytest tests/` |
 | Smoke test reproducible | ~13 s | `scripts/smoke_test.py` valida 12 componentes |
 | Carga modelo SAM 3.1 | 13 s primera vez, 5 s con cache | fp16 reduce VRAM a 1.67 GB |
 | Inferencia SAM 3.1 (portrait 1808p, 2 prompts) | ~1 s por frame | RTX 5080 + fp16 |

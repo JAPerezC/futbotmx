@@ -152,15 +152,25 @@ Al menos UNA de las siguientes:
 
 ## 11. Innovación sobre SAM 3 (§ 3.7.3) — requisito Profesional
 
-Mínimo UNA línea (planeamos cubrir TRES):
-- ⏳ **Prompts y contexto**: prompts compuestos, cascada, re-prompting
-  adaptativo (ver `docs/architecture.md` § 6.1)
-- ⏳ **Fine-tuning**: LoRA del prompt encoder sobre ~200-500 frames
-  anotados del dataset (ver `docs/architecture.md` § 6.2)
-- ⏳ **Post-procesamiento**: Kalman filter para predecir balón ocluido,
-  estimación de velocidad para detectar tiros, asignación de posesión
-  (ver `docs/architecture.md` § 6.3)
-- Integración con ByteTrack queda implícita por la arquitectura.
+Mínimo UNA línea: **cubrimos las CUATRO**.
+
+- ✅ **Prompts y contexto**: prompts simples vs elaborados validados
+  empíricamente; `"soccer robot"` (0.94) supera a
+  `"small mobile soccer robot with a colored flag"` (0.34). Diseño en
+  `src/segmentation/prompts.py`.
+- ✅ **Fine-tuning LoRA**: infraestructura completa con peft 0.19,
+  rank=8 sobre q/k/v/o_proj de vision_encoder + mask_decoder
+  (3.88M params, 0.46% del modelo). Dataset pseudo-supervisado de 524
+  máscaras de 15 videos. Dry-run validado end-to-end. Documentado en
+  `docs/lora-finetuning.md`.
+- ✅ **Post-procesamiento**: Kalman 2D del balón con fallback HSV;
+  AdaptiveTeamClassifier v2 (recompute online + votación temporal +
+  (hue, sat)); homografía con esquinas reales por líneas blancas;
+  detección de gol con bbox REAL de portería (amarilla/azul) en lugar
+  de ROI virtual.
+- ✅ **Integración con trackers**: cascada SAM 3.1 → OC-SORT (robots) +
+  Kalman 2D (balón); BoxMOT 18 con OC-SORT, ya soporta StrongSORT/
+  BoT-SORT si se requiere mejora futura.
 
 ## 12. Verificación final pre-entrega (correr el 2026-06-18)
 
