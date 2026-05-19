@@ -130,3 +130,60 @@ def test_adaptive_ignores_none_observations():
     # 2 fue observado → asignado; 1 nunca observado → None
     assert clf.assign(2) is not None
     assert clf.assign(1) is None
+
+
+# -------- v2: recompute online + votación temporal + (h, s) --------
+
+
+def test_adaptive_recomputes_online_when_new_team_appears():
+    """Si los primeros frames solo ven equipo A y luego aparece B,
+    el classifier debe recalcular centros y separar los equipos."""
+    clf = AdaptiveTeamClassifier(
+        warmup_frames=3, recompute_every=2, vote_window=10, hue_separation_min=20
+    )
+    # Fase 1: solo equipo A visible (5 frames de hue ~145, morado)
+    for _ in range(5):
+        clf.observe(1, 145)
+        clf.observe(2, 142)
+        clf.end_frame()
+    # En este punto ambos están etiquetados como mismo cluster (A)
+    # Fase 2: aparece equipo B (verde-lima, hue ~60)
+    for _ in range(8):
+        clf.observe(1, 145)
+        clf.observe(2, 142)
+        clf.observe(3, 60)
+        clf.observe(4, 65)
+        clf.end_frame()
+    a1, a2 = clf.assign(1), clf.assign(2)
+    a3, a4 = clf.assign(3), clf.assign(4)
+    # Los morados deben terminar en el mismo equipo, los verdes en el otro
+    assert a1 == a2, f"morados no agrupados: {a1=} {a2=}"
+    assert a3 == a4, f"verdes no agrupados: {a3=} {a4=}"
+    assert a1 != a3, f"morados y verdes no separados: {a1=} {a3=}"
+
+
+def test_adaptive_accepts_hue_sat_tuple():
+    """La API v2 acepta (hue, sat) además de int."""
+    clf = AdaptiveTeamClassifier(warmup_frames=3, hue_separation_min=20)
+    for _ in range(5):
+        clf.observe(1, (145, 200))  # morado saturado
+        clf.observe(2, (60, 180))  # verde-lima saturado
+        clf.end_frame()
+    a1, a2 = clf.assign(1), clf.assign(2)
+    assert {a1, a2} == {"A", "B"}, f"got {a1=} {a2=}"
+
+
+def test_adaptive_temporal_voting_smooths_noise():
+    """Si un track recibe muchas muestras correctas y pocas ruidosas,
+    la votación temporal lo asigna por mayoría."""
+    clf = AdaptiveTeamClassifier(warmup_frames=3, vote_window=20, hue_separation_min=20)
+    # Track 1: 18 muestras de morado + 2 ruido verde
+    # Track 2: verde-lima consistente
+    for i in range(20):
+        hue1 = 145 if i >= 2 else 60  # primeras 2 son ruido
+        clf.observe(1, hue1)
+        clf.observe(2, 60)
+        clf.end_frame()
+    # 18/20 votos del track 1 son morado → debe ganar A
+    a1, a2 = clf.assign(1), clf.assign(2)
+    assert a1 != a2, f"votación falló: ambos={a1}"

@@ -48,7 +48,6 @@ from src.events.rules import (
     detect_kick,
     detect_pass_or_interception,
     is_damaged_robot,
-    is_in_goal_roi,
     is_kick,
     is_no_progress,
 )
@@ -62,13 +61,12 @@ from src.segmentation.sam3 import (
 )
 from src.metrics.stats import MatchStats
 from src.tracking.ball import BallTracker
-from src.tracking.reid import AdaptiveTeamClassifier, _dominant_hue
+from src.tracking.reid import AdaptiveTeamClassifier
 from src.tracking.robots import RobotTracker
 from src.utils.calib import (
     compute_homography,
     project_points,
 )
-from src.utils.field_detect import detect_field_corners
 from src.utils.io import VideoWriter, probe, read_frames
 from src.viz.dashboard import render_dashboard
 from src.viz.heatmap import render_heatmap, render_heatmap_by_team
@@ -96,51 +94,53 @@ def draw_stats_banner(image, stats: MatchStats, t_s: float, duration_s: float):
     """Banner persistente arriba con score + posesión + tiempo.
 
     Sirve como narrativa visual del partido en cualquier frame (§ 3.5.2).
+    Tamaño escalado para video portrait 1360x1808 — visible a distancia.
     """
     h, w = image.shape[:2]
-    bh = 75
+    bh = 140
     overlay = image.copy()
     cv2.rectangle(overlay, (0, 0), (w, bh), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.55, image, 0.45, 0, image)
-    # Score
+    cv2.addWeighted(overlay, 0.7, image, 0.3, 0, image)
+    cv2.line(image, (0, bh), (w, bh), (255, 215, 0), 3)
+    # Score grande
     score = f"A {stats.score_a} - {stats.score_b} B"
     cv2.putText(
         image,
         score,
-        (16, 36),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.0,
+        (20, 70),
+        cv2.FONT_HERSHEY_DUPLEX,
+        2.2,
         (255, 255, 255),
-        2,
+        4,
         cv2.LINE_AA,
     )
     # Posesión
     pa, pb = stats.possession_pct_a, stats.possession_pct_b
-    pos_text = f"pos A {pa:.0f}% | B {pb:.0f}%"
+    pos_text = f"pos  A {pa:.0f}%   B {pb:.0f}%"
     cv2.putText(
         image,
         pos_text,
-        (16, 64),
+        (20, 120),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (200, 200, 200),
-        1,
+        1.1,
+        (220, 220, 220),
+        2,
         cv2.LINE_AA,
     )
     # Tiempo
     time_text = f"t = {t_s:5.1f} / {duration_s:5.1f}s"
-    (tw, _), _ = cv2.getTextSize(time_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+    (tw, _), _ = cv2.getTextSize(time_text, cv2.FONT_HERSHEY_SIMPLEX, 1.1, 2)
     cv2.putText(
         image,
         time_text,
-        (w - tw - 16, 36),
+        (w - tw - 20, 70),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (255, 255, 255),
-        1,
+        1.1,
+        (255, 215, 0),
+        2,
         cv2.LINE_AA,
     )
-    # Conteo eventos compacto
+    # Conteo eventos compacto, alineado a la derecha
     counts = stats.event_counts
     summary_parts = [
         f"{n}:{counts[n]}"
@@ -156,15 +156,16 @@ def draw_stats_banner(image, stats: MatchStats, t_s: float, duration_s: float):
         if counts.get(n, 0) > 0
     ]
     if summary_parts:
-        evt_text = "  ".join(summary_parts)
+        evt_text = " | ".join(summary_parts)
+        (ew, _), _ = cv2.getTextSize(evt_text, cv2.FONT_HERSHEY_SIMPLEX, 0.75, 2)
         cv2.putText(
             image,
             evt_text,
-            (w - 600, 64),
+            (w - ew - 20, 120),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (180, 180, 180),
-            1,
+            0.75,
+            (200, 200, 200),
+            2,
             cv2.LINE_AA,
         )
 
@@ -228,37 +229,53 @@ def draw_ball(image, state):
 
 
 def draw_event_banner(image, recent_events):
-    """Banner superior con eventos recientes (últimos 0.6s)."""
+    """Banner INFERIOR con eventos recientes (últimos 0.6s).
+
+    Movido a la parte inferior para no tapar el banner persistente de stats.
+    Sin overlay translúcido pesado: solo franja delgada + texto a color.
+    """
     if not recent_events:
         return
     h, w = image.shape[:2]
-    banner_h = 50
+    banner_h = 70
+    y0 = h - banner_h
     overlay = image.copy()
-    cv2.rectangle(overlay, (0, 0), (w, banner_h), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.55, image, 0.45, 0, image)
-    x = 12
+    cv2.rectangle(overlay, (0, y0), (w, h), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.65, image, 0.35, 0, image)
+    cv2.line(image, (0, y0), (w, y0), (255, 215, 0), 3)
+    x = 20
     for ev in recent_events:
         color = EVENT_COLOR.get(ev.type, (255, 255, 255))
-        text = f"{ev.type.upper()} t={ev.t:.2f}s"
+        text = f"{ev.type.upper()} {ev.t:.1f}s"
         cv2.putText(
-            image, text, (x, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA
+            image,
+            text,
+            (x, y0 + 48),
+            cv2.FONT_HERSHEY_DUPLEX,
+            1.1,
+            color,
+            3,
+            cv2.LINE_AA,
         )
-        x += int(cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0][0]) + 28
+        x += int(cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, 1.1, 3)[0][0]) + 40
+        if x > w - 100:
+            break
 
 
-def draw_possession_info(image, pos):
+def draw_possession_info(image, pos, has_event_banner: bool = False):
     if pos is None or pos.track_id is None:
         return
     h, w = image.shape[:2]
     text = (
-        f"posession id={pos.track_id} team={pos.team or '?'} d={pos.distance_mm:.0f}mm"
+        f"posesion id={pos.track_id} team={pos.team or '?'} d={pos.distance_mm:.0f}mm"
     )
+    y = h - 90 if has_event_banner else h - 30
     cv2.putText(
         image,
         text,
-        (12, h - 18),
+        (20, y),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        0.85,
         (255, 255, 255),
         2,
         cv2.LINE_AA,
@@ -269,22 +286,72 @@ def draw_possession_info(image, pos):
 
 
 def calibrate_homography(video_path, max_frames_to_try=60):
-    """Busca el primer frame donde se detecten 4 esquinas y devuelve H + corners."""
-    print("  buscando frame para calibrar...")
+    """Calibra esquinas REALES del campo (líneas blancas) + porterías por color.
+
+    Usa `detect_field_geometry` v2: Hough sobre líneas blancas dentro del
+    fieltro verde + fallback a convex hull. Devuelve también los bbox de
+    las porterías AMARILLA y AZUL detectadas, que se usan para detectar
+    goles reales (balón dentro del bbox de portería).
+
+    Returns:
+        (H, corners, goals_img, idx)
+            H: 3x3 homografía imagen → mundo (mm)
+            corners: (4,2) esquinas en orden TL,TR,BR,BL
+            goals_img: lista de GoalDetection (0..2)
+            idx: índice del frame de calibración
+    """
+    from src.utils.field_detect_v2 import detect_field_geometry
+
+    print("  buscando frame para calibrar (líneas blancas + porterías)...")
     tried = 0
+    best_geom = None
+    best_idx = 0
+    best_inside = -1
+    last_frame = None
     for idx, frame in read_frames(video_path, stride=5):
         tried += 1
-        res = detect_field_corners(frame)
-        if res.success:
-            H = compute_homography(res.corners)
-            print(
-                f"  ✓ esquinas detectadas en frame idx={idx} (area_ratio={res.contour_area_ratio:.2f})"
+        last_frame = frame
+        h_img, w_img = frame.shape[:2]
+        geom = detect_field_geometry(frame)
+        if geom.success:
+            inside = sum(
+                1 for x, y in geom.corners_img if 0 <= x < w_img and 0 <= y < h_img
             )
-            return H, res.corners, idx
+            method = geom.debug.get("method", "?")
+            goal_colors = [g.color for g in geom.goals]
+            # Privilegiar frames con MÁS porterías detectadas, luego más esquinas.
+            score = len(goal_colors) * 10 + inside
+            if score > best_inside:
+                best_inside = score
+                best_geom = geom
+                best_idx = idx
+                # Si tenemos 2 porterías y 4 esquinas, parar pronto.
+                if len(goal_colors) == 2 and inside == 4:
+                    print(
+                        f"  OK [{method}] esquinas={inside}/4 goals={goal_colors} "
+                        f"frame idx={idx} (óptimo)"
+                    )
+                    H = compute_homography(geom.corners_img)
+                    return H, geom.corners_img, geom.goals, idx
         if tried >= max_frames_to_try:
             break
+
+    if best_geom is not None:
+        method = best_geom.debug.get("method", "?")
+        inside = sum(
+            1
+            for x, y in best_geom.corners_img
+            if 0 <= x < last_frame.shape[1] and 0 <= y < last_frame.shape[0]
+        )
+        goal_colors = [g.color for g in best_geom.goals]
+        print(
+            f"  OK [{method}] esquinas={inside}/4 goals={goal_colors} frame idx={best_idx}"
+        )
+        H = compute_homography(best_geom.corners_img)
+        return H, best_geom.corners_img, best_geom.goals, best_idx
+
     print("  WARN: no se pudo calibrar automáticamente; usando esquinas por defecto")
-    h, w = frame.shape[:2]
+    h, w = last_frame.shape[:2]
     fallback = np.array(
         [
             [w * 0.1, h * 0.2],
@@ -294,7 +361,7 @@ def calibrate_homography(video_path, max_frames_to_try=60):
         ],
         dtype=np.float64,
     )
-    return compute_homography(fallback), fallback, 0
+    return compute_homography(fallback), fallback, [], 0
 
 
 # -------- pipeline --------
@@ -358,7 +425,8 @@ def main():
 
     # Calibrar homografía
     print("Calibrando homografía...")
-    H, corners, _ = calibrate_homography(args.video)
+    H, corners, goals_img, _ = calibrate_homography(args.video)
+    goals_by_color: dict[str, np.ndarray] = {g.color: g.bbox_xyxy for g in goals_img}
 
     # Cargar SAM 3
     print(f"Cargando SAM 3.1 ({args.model})...")
@@ -477,8 +545,8 @@ def main():
             teams_this_frame = {}
             tracks_record = []
             for tr in tracks:
-                hue = _dominant_hue(frame, tr.bbox_xyxy)
-                team_clf.observe(tr.track_id, hue)
+                feat = _dominant_feature(frame, tr.bbox_xyxy)
+                team_clf.observe(tr.track_id, feat)
                 team_label = team_clf.assign(tr.track_id)
                 # proyectar centroide a mundo
                 world_xy = project_points(tr.centroid_img.reshape(1, 2), H)[0]
@@ -493,7 +561,8 @@ def main():
                         "centroid_img": tr.centroid_img.tolist(),
                         "centroid_mm": world_xy.tolist(),
                         "team": team_label,
-                        "team_hue": hue,
+                        "team_hue": feat[0] if feat else None,
+                        "team_sat": feat[1] if feat else None,
                         "confidence": tr.confidence,
                     }
                 )
@@ -537,10 +606,14 @@ def main():
                     current_events.append(ev)
                     match_stats.register_event("kick")
 
-            # Gol: balón en ROI portería (se asigna al último poseedor, si lo hay)
-            if ball_mm is not None:
-                for side in ("left", "right"):
-                    if is_in_goal_roi(ball_mm, side):
+            # Gol: balón DENTRO del bbox de una portería REAL detectada por color.
+            # Mucho más confiable que el ROI virtual en mundo mm: usa la
+            # portería visible (amarilla/azul) detectada en la calibración.
+            if ball_state.found and goals_by_color:
+                ball_px = np.array([ball_state.cx, ball_state.cy], dtype=np.float64)
+                for goal_color, bbox in goals_by_color.items():
+                    x1, y1, x2, y2 = bbox
+                    if x1 <= ball_px[0] <= x2 and y1 <= ball_px[1] <= y2:
                         # Anti-spam: 1 gol cada 3 segundos
                         if (
                             events
@@ -554,9 +627,16 @@ def main():
                             t=t_now,
                             type="goal",
                             actors=[prev_owner_track] if prev_owner_track else [],
-                            position_mm=(float(ball_mm[0]), float(ball_mm[1])),
+                            position_mm=(
+                                float(ball_mm[0]) if ball_mm is not None else 0.0,
+                                float(ball_mm[1]) if ball_mm is not None else 0.0,
+                            ),
                             confidence=1.0,
-                            meta={"side": side, "scoring_team": scoring_team},
+                            meta={
+                                "goal_color": goal_color,
+                                "scoring_team": scoring_team,
+                                "ball_px": (float(ball_px[0]), float(ball_px[1])),
+                            },
                         )
                         events.append(ev)
                         current_events.append(ev)
@@ -757,7 +837,23 @@ def main():
 
             # 6. Anotar frame
             annotated = frame.copy()
-            overlay_polygon(annotated, corners, color=(255, 255, 0))
+            # Cuadrilátero del campo (esquinas reales por líneas blancas)
+            overlay_polygon(annotated, corners, color=(0, 255, 0))
+            # Porterías reales detectadas por color
+            for goal_color, bbox in goals_by_color.items():
+                x1, y1, x2, y2 = [int(v) for v in bbox]
+                box_color = (0, 255, 255) if goal_color == "yellow" else (255, 100, 0)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), box_color, 4)
+                cv2.putText(
+                    annotated,
+                    f"GOAL {goal_color.upper()}",
+                    (x1, max(40, y1 - 12)),
+                    cv2.FONT_HERSHEY_DUPLEX,
+                    1.0,
+                    box_color,
+                    2,
+                    cv2.LINE_AA,
+                )
             for tr in tracks:
                 draw_track(
                     annotated,
@@ -767,13 +863,13 @@ def main():
                     tr.confidence,
                 )
             draw_ball(annotated, ball_state)
-            draw_possession_info(annotated, pos)
-            # Banner persistente arriba (score + posesión + tiempo)
-            draw_stats_banner(annotated, match_stats, t_now, duration)
-            # Banner de eventos recientes (último, en línea aparte)
             recent = [e for e in events if t_now - e.t < 0.6]
+            draw_possession_info(annotated, pos, has_event_banner=bool(recent))
+            # Banner inferior con eventos recientes (PRIMERO, no pisa stats)
             if recent:
                 draw_event_banner(annotated, recent)
+            # Banner persistente arriba (score + posesión + tiempo) — SIEMPRE al final
+            draw_stats_banner(annotated, match_stats, t_now, duration)
             writer.write(annotated)
 
             record["frames"].append(
