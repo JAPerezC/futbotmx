@@ -40,6 +40,7 @@ def load_model(
     checkpoint: str = "facebook/sam3",
     device: str | None = None,
     half_precision: bool = True,
+    lora_ckpt: str | None = None,
 ) -> tuple["object", "object"]:
     """Carga procesador y modelo SAM 3.1 desde HuggingFace.
 
@@ -48,6 +49,10 @@ def load_model(
         device: ``cuda`` / ``cpu`` / None (autodetecta).
         half_precision: usar fp16 en GPU (default True). ~40% speedup y
             ~50% menos VRAM con calidad equivalente para inferencia.
+        lora_ckpt: ruta opcional a adaptador LoRA fine-tuned. Si se pasa,
+            monta el adaptador sobre el modelo base con
+            ``PeftModel.from_pretrained``. Permite usar pesos fine-tuned
+            con § 3.7.3 sin re-descargar el modelo base completo.
 
     Returns:
         (processor, model). El model está en eval() y movido al device.
@@ -60,6 +65,10 @@ def load_model(
     processor = Sam3Processor.from_pretrained(checkpoint)
     dtype = torch.float16 if (half_precision and device == "cuda") else torch.float32
     model = Sam3Model.from_pretrained(checkpoint, torch_dtype=dtype).to(device).eval()
+    if lora_ckpt:
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(model, lora_ckpt).to(device).eval()
     return processor, model
 
 
