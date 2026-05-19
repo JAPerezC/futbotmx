@@ -1,8 +1,20 @@
 # Checklist de cumplimiento — Convocatoria FutBotMX 2026
 
-> Última revisión: 2026-05-16
+> Última revisión: 2026-05-19
 > Fuente: convocatoria oficial (16 pp) + reglas del torneo (18 pp)
 > Verificación final obligatoria antes del **2026-06-19 23:59**
+
+## Estado de hoy (2026-05-19)
+
+- 80→83 tests verdes (3 nuevos: recompute online, (h,s) tuples, votación temporal)
+- AdaptiveTeamClassifier v2: warmup 30f, recompute cada 15f, vote_window 20,
+  uso de saturación además de hue. Resuelve el colapso 100%/0% A
+  observado en 3 de 4 videos del último batch.
+- Detector v2 (líneas blancas + porterías por color) integrado al pipeline
+- Bibliografía actualizada con 7 entradas del estado del arte 2026
+  (PnLCalib, SAM3_LoRA, BoT-SORT, OSNet, STRIKER, etc.)
+- Investigador externo confirma: votación temporal era exactamente el fix
+  que necesitábamos (paper STRIKER IJRIAS 2026)
 
 Leyenda: ✅ hecho · ⏳ en curso · ❌ pendiente · ⚠ riesgo descalificación
 
