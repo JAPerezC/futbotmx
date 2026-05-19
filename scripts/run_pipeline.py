@@ -400,6 +400,15 @@ def parse_args():
         default=0.05,
         help="área máxima del bbox como fracción del frame (defecto 5%)",
     )
+    p.add_argument(
+        "--recalib-every",
+        type=int,
+        default=60,
+        help=(
+            "recalibrar porterías por color cada N frames procesados; 0 desactiva. "
+            "Compensa el drift del bbox cuando la cámara se mueve (defecto 60)."
+        ),
+    )
     return p.parse_args()
 
 
@@ -436,7 +445,15 @@ def main():
 
     robot_tracker = RobotTracker(min_hits=1, det_thresh=0.2, iou_threshold=0.3)
     ball_tracker = BallTracker(dt=args.stride / meta.fps, max_missing_frames=20)
-    team_clf = AdaptiveTeamClassifier(warmup_frames=8, hue_separation_min=20)
+    # Classifier v2: warmup 30 frames, recompute online cada 15, ventana de
+    # votación 20, peso de saturación 0.5. Resuelve colapso 100%/0%.
+    team_clf = AdaptiveTeamClassifier(
+        warmup_frames=30,
+        recompute_every=15,
+        vote_window=20,
+        hue_separation_min=20,
+        sat_weight=0.5,
+    )
     match_stats = MatchStats()
 
     out_video = args.out / "annotated.mp4"
@@ -474,10 +491,27 @@ def main():
     try:
         n_processed = 0
         t_start = time.time()
+        # Recalibración online de porterías: cada N frames procesados,
+        # re-detectamos las porterías por color y actualizamos goals_by_color.
+        # Resuelve el drift cuando la cámara se mueve (el bbox calibrado en
+        # frame 0 deja de coincidir con la portería real).
+        recalib_every_n = args.recalib_every
+        from src.utils.field_detect_v2 import detect_goals_by_color
+
         for idx, frame in read_frames(args.video, stride=args.stride):
             if idx >= max_frames_to_read:
                 break
             t_now = idx / meta.fps
+
+            # 0. Recalibración online (no recalculamos esquinas, solo porterías)
+            if (
+                recalib_every_n > 0
+                and n_processed > 0
+                and n_processed % recalib_every_n == 0
+            ):
+                new_goals = detect_goals_by_color(frame)
+                if new_goals:
+                    goals_by_color = {g.color: g.bbox_xyxy for g in new_goals}
 
             # 1. SAM 3.1: balón + robots
             seg = segment_with_text(
