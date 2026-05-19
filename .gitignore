@@ -18,6 +18,8 @@ build/
 
 # Datos pesados — NO commitear
 data/raw/
+data/processed/pseudo_dataset/
+data/processed/lora_checkpoints/
 data/processed/
 data/models/
 *.mp4
