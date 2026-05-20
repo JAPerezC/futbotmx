@@ -1,10 +1,13 @@
-# futbotmx — análisis CV de fútbol robótico con SAM 3.1
+# AJOLOTES FC — análisis CV de fútbol robótico con SAM 3.1
 
 Sistema de visión por computadora para análisis automático de partidos de
-fútbol robótico, desarrollado para la **Copa FutBotMX 2026 — Capítulo
-Visión por Computadora** (Secihti · Meta · CENTRO).
+fútbol robótico, desarrollado por el equipo **AJOLOTES FC** para la
+**Copa FutBotMX 2026 — Capítulo Visión por Computadora**
+(Secihti · Meta · CENTRO).
 
-> Categoría: **Profesional** · Modelo base obligatorio: **SAM 3 / SAM 3.1 (Meta)**
+> Equipo: **AJOLOTES FC**
+> Categoría: **Profesional**
+> Modelo base obligatorio: **SAM 3 / SAM 3.1 (Meta)**
 
 ## TL;DR
 
@@ -242,7 +245,7 @@ descargan al instalar.
 
 ## Equipo y créditos
 
-Equipo registrado para la **Categoría Profesional**:
+**AJOLOTES FC** — registrado para la **Categoría Profesional**:
 
 | Integrante | Rol |
 |---|---|
