@@ -242,10 +242,24 @@ descargan al instalar.
 
 ## Equipo y créditos
 
-- **Equipo**: pendiente de definir (2-4 personas, perfiles en formulario de registro).
-- **Mentor / asesor**: por confirmar.
-- Asistencia con LLMs autorizados en la convocatoria (§ 3.1.3): Claude (Anthropic) para
-  documentación, debugging y exploración de literatura.
+Equipo registrado para la **Categoría Profesional**:
+
+| Integrante | Rol |
+|---|---|
+| Macias Sobrino, María Fernanda | Integrante |
+| De Unanue Tiscareño, Adolfo Javier | Integrante |
+| Cisneros Villarán, Stephany | Integrante |
+| Pérez Castellanos, Jorge Alejandro | Integrante |
+
+Los perfiles públicos de cada integrante (GitHub / LinkedIn) se proporcionan
+en el formulario oficial de registro (§ 3.3 de la convocatoria); los datos
+personales (edad, INE, etc.) se entregan únicamente a la Secihti conforme
+al aviso de privacidad LFPDPPP (§ 3.12) y no se publican aquí.
+
+Asistencia con LLMs autorizados en la convocatoria (§ 3.1.3): Claude
+(Anthropic) para documentación, depuración y exploración de literatura.
+La totalidad del diseño técnico, decisiones de arquitectura y validación
+empírica son responsabilidad y autoría del equipo.
 
 ## Recursos oficiales
 
