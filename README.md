@@ -143,8 +143,8 @@ hardware. Inferencia SAM 3.1 usa ~8 GB de VRAM.
 
 ```bash
 # 1. Clonar
-git clone git@github.com:JAPerezC/futbotmx.git
-cd futbotmx
+git clone git@github.com:JAPerezC/futbotmx-ajolotesfc.git
+cd futbotmx-ajolotesfc
 
 # 2. Entorno (Python 3.12 obligatorio para SAM 3)
 py -3.12 -m venv .venv
