@@ -126,9 +126,15 @@ def main() -> int:
     for i, ev in enumerate(goals):
         t0 = max(0, ev["t"] - args.window)
         t1 = min(duration_total, ev["t"] + args.window)
-        team = ev["meta"].get("scoring_team") or "?"
-        color = ev["meta"].get("goal_color", "?")
-        out_name = f"goal_{i + 1:02d}_t{ev['t']:.1f}_team{team}_{color}.{args.format}"
+        team = ev["meta"].get("scoring_team") or "NA"
+        color = ev["meta"].get("goal_color", "NA")
+        # Sanitizar para nombre de archivo (Windows no permite ? : * etc)
+        safe_team = "".join(c if c.isalnum() else "_" for c in str(team))
+        safe_color = "".join(c if c.isalnum() else "_" for c in str(color))
+        out_name = (
+            f"goal_{i + 1:02d}_t{ev['t']:.1f}_team{safe_team}_{safe_color}."
+            f"{args.format}"
+        )
         out_path = out_dir / out_name
         ok = extract_clip(video, t0, t1, out_path, args.format)
         if ok:

@@ -181,24 +181,48 @@ def forward_one_sample(model, processor, image_bgr, bbox_prompt, mask_gt, device
     return bce + dice
 
 
-def train_epoch(model, processor, loader, optimizer, scheduler, device, accum_steps):
+def train_epoch(
+    model, processor, loader, optimizer, scheduler, device, accum_steps, log_every=20
+):
+    """Training de 1 epoch con limpieza periódica de VRAM.
+
+    SAM 3 con backward y fp16 fragmenta memoria. Llamamos
+    `torch.cuda.empty_cache()` cada 20 samples para evitar OOM
+    acumulativo en datasets grandes con imágenes 1080p+.
+    """
+    import time
+
     model.train()
     total_loss = 0.0
     n = 0
     optimizer.zero_grad()
-    for step, batch in enumerate(loader):
+    t0 = time.time()
+    for batch in loader:
         for img, box, gt in zip(
             batch["images"], batch["bbox_prompts"], batch["masks_gt"]
         ):
-            loss = forward_one_sample(model, processor, img, box, gt, device)
-            (loss / accum_steps).backward()
-            total_loss += loss.item()
-            n += 1
-            if n % accum_steps == 0:
-                optimizer.step()
-                if scheduler is not None:
-                    scheduler.step()
+            try:
+                loss = forward_one_sample(model, processor, img, box, gt, device)
+                (loss / accum_steps).backward()
+                total_loss += loss.item()
+                n += 1
+                if n % accum_steps == 0:
+                    optimizer.step()
+                    if scheduler is not None:
+                        scheduler.step()
+                    optimizer.zero_grad()
+                if n % log_every == 0:
+                    rate = n / max(0.001, time.time() - t0)
+                    print(
+                        f"    sample {n}  loss={loss.item():.3f}  rate={rate:.2f}/s",
+                        flush=True,
+                    )
+                    torch.cuda.empty_cache()
+            except torch.cuda.OutOfMemoryError as e:
+                print(f"    OOM en sample {n + 1}: {e}", flush=True)
+                torch.cuda.empty_cache()
                 optimizer.zero_grad()
+                continue
     if n > 0 and (n % accum_steps != 0):
         optimizer.step()
         optimizer.zero_grad()
@@ -247,6 +271,14 @@ def main() -> int:
     p.add_argument("--category", default=None, help="robot | ball | None (todas)")
     p.add_argument("--min-score", type=float, default=0.6)
     p.add_argument("--dry-run", action="store_true", help="1 epoch sobre 10 samples")
+    p.add_argument(
+        "--max-samples-per-epoch",
+        type=int,
+        default=0,
+        help="si >0, en cada epoch muestrea aleatoriamente este número de "
+        "samples del train set (limita acumulación de VRAM en datasets "
+        "grandes con imágenes 1080p+). 0 = usar todo el train set.",
+    )
     args = p.parse_args()
 
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
@@ -296,11 +328,29 @@ def main() -> int:
     history = []
     best_iou = -1.0
     t_start = time.time()
+    import random as _rnd
+
+    rnd = _rnd.Random(42)
     for epoch in range(1, args.epochs + 1):
+        # Si max_samples_per_epoch > 0, muestrea aleatoriamente del train set
+        # un subset reducido para evitar acumulación de VRAM por epoch.
+        if args.max_samples_per_epoch and args.max_samples_per_epoch > 0:
+            epoch_idx = rnd.sample(
+                train_idx, min(args.max_samples_per_epoch, len(train_idx))
+            )
+            ep_loader = DataLoader(
+                Subset(ds, epoch_idx),
+                batch_size=args.batch_size,
+                shuffle=True,
+                collate_fn=collate_keep_lists,
+                num_workers=0,
+            )
+        else:
+            ep_loader = train_loader
         ep_loss = train_epoch(
             model,
             processor,
-            train_loader,
+            ep_loader,
             optimizer,
             scheduler,
             device,

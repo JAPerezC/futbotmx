@@ -76,8 +76,23 @@ Cubrimos **las cuatro** líneas oficiales:
 4. **Fine-tuning LoRA** sobre SAM 3.1: rank=8, target q/k/v/o_proj de
    vision_encoder + mask_decoder (3.88M params, 0.46% del modelo).
    Dataset pseudo-supervisado de 524 máscaras curadas (score ≥ 0.6 +
-   filtros geométricos) sobre 15 videos del Drive oficial. Flujo
-   documentado en [`docs/lora-finetuning.md`](docs/lora-finetuning.md).
+   filtros geométricos) sobre 15 videos del Drive oficial. 15 epochs
+   × 80 samples en **16.8 min** sobre RTX 5080. Flujo en
+   [`docs/lora-finetuning.md`](docs/lora-finetuning.md).
+
+   **Resultados cuantitativos** (validación rigurosa, 60 samples val
+   por split por video, sin leakage):
+
+   | Métrica | SAM 3.1 base | LoRA fine-tuned | Mejora |
+   |---|---|---|---|
+   | **mIoU global** | 0.046 | **0.895** | **+1844%** |
+   | mIoU robots | 0.049 | **0.934** | +1796% |
+   | mIoU balón | 0.036 | **0.776** | +2050% |
+
+   Reporte completo en
+   `data/processed/lora_checkpoints/validation_lora_best_iou0.879_ep15.json`.
+   Reproducible con
+   `python scripts/validate_lora.py --ckpt <path>`.
 
 Estado del arte 2026 cruzado vía survey externo + bibliografía
 ([`refs.bib`](refs.bib)) con foco en `teamaware_sam_2025`,
