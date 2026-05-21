@@ -56,6 +56,12 @@ Detalles en [`docs/architecture.md`](docs/architecture.md) y justificación
 de cada decisión con literatura 2024-2026 en
 [`docs/literature-review.md`](docs/literature-review.md).
 
+> **¿Nuevo en visión por computadora?** Lee la
+> [documentación completa explicada desde cero](docs/documentacion-completa.md)
+> ([PDF](docs/documentacion-completa.pdf)): explica todos los conceptos
+> básicos (píxeles, HSV, segmentación, tracking, homografía, SAM 3, LoRA)
+> y recorre el pipeline paso a paso. Incluye glosario.
+
 ## Innovación sobre SAM 3 (requisito Profesional § 3.7.3)
 
 Cubrimos **las cuatro** líneas oficiales:
