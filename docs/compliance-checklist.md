@@ -4,11 +4,13 @@
 > Fuente: convocatoria oficial (16 pp) + reglas del torneo (18 pp)
 > Verificación final obligatoria antes del **2026-06-19 23:59**
 
-## Estado al 2026-05-25 (post-deadline humano)
+## Estado al 2026-05-25
 
 - **Registro Secihti COMPLETADO** (confirmado por el equipo el 25-may)
-- **Reel Instagram PUBLICADO** (confirmado por el equipo el 25-may)
 - **Repo PÚBLICO** desde el 20-may en `github.com/JAPerezC/futbotmx-ajolotesfc`
+- **Reel Instagram ❌ PENDIENTE** — DESCALIFICA si falta el 19-jun (§ 3.7.4)
+- **Video demo ≤ 2 min ❌ PENDIENTE** del master final (infraestructura
+  lista en `scripts/make_side_by_side.py` y demo de 60s ya generado)
 - Equipo **AJOLOTES FC** con 4 integrantes inscritos en Categoría Profesional
 - 83 tests verdes, 27+ commits, pipeline end-to-end funcional
 - Innovación § 3.7.3: **4/4 líneas** cubiertas con evidencia cuantitativa
