@@ -1040,6 +1040,24 @@ def main():
     except Exception as e:
         print(f"  WARN: dashboard falló: {e}")
 
+    # Minimap top-down animado (vista cenital sintetizada con la homografía)
+    try:
+        import subprocess
+
+        mm_cmd = [
+            sys.executable,
+            str(ROOT / "scripts" / "render_minimap_video.py"),
+            "--run",
+            str(args.out),
+        ]
+        mm_res = subprocess.run(mm_cmd, capture_output=True, text=True)
+        if mm_res.returncode == 0:
+            print(f"  minimap: {args.out / 'minimap.mp4'}")
+        else:
+            print(f"  WARN minimap: {mm_res.stderr[-200:]}")
+    except Exception as e:
+        print(f"  WARN minimap falló: {e}")
+
     print("\n=== RESUMEN ===")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     print(f"\nOutputs en: {args.out}")

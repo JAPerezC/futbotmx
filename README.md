@@ -131,6 +131,7 @@ Outputs por run en `data/processed/runs/<videoname>/`:
 | `heatmap_team_A.png` · `heatmap_team_B.png` | Densidad **por equipo** (colormap por team) |
 | `trails.png` | Trayectorias completas top-down con porterías amarilla/azul |
 | `voronoi_final.png` | Control de espacio en último frame, coloreado por equipo |
+| `minimap.mp4` | **Vista cenital sintetizada** del partido (top-down) con marcador, posesión, robots por equipo, balón con trail y eventos. Generado a partir de la homografía y `tracks.json`. Estilo SoccerNet Broadcast-to-Minimap. |
 
 El video lado a lado para el jurado (≤ 2 min) se genera con
 `scripts/make_side_by_side.py`. Para reproducir velocidad real con
