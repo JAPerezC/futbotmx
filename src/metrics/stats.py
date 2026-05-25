@@ -18,6 +18,16 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+# Umbrales físicos para descartar saltos como artefactos de tracking.
+# La cancha mide ~2 m. A 0.5 s entre frames procesados (stride típico 5, fps≈30):
+# - Robot creíble: <1 m/s → <500 mm de desplazamiento por frame.
+# - Balón creíble: <3 m/s (golpe fuerte) → <1500 mm de desplazamiento por frame.
+# Saltos mayores indican ID-switch, oclusión + reaparición, o fallback HSV en otra
+# parte del campo. Descartamos del acumulado pero seguimos avanzando la posición
+# de referencia para no quedarnos atascados.
+MAX_ROBOT_JUMP_MM = 500.0
+MAX_BALL_JUMP_MM = 1500.0
+
 
 @dataclass
 class MatchStats:
@@ -43,6 +53,9 @@ class MatchStats:
     ball_distance_mm: float = 0.0
     ball_max_speed_mm_s: float = 0.0
     ball_speed_samples: list[float] = field(default_factory=list)
+    # Auditoría de saltos descartados (transparencia ante el jurado)
+    n_jumps_discarded_ball: int = 0
+    n_jumps_discarded_robots: int = 0
     # Último estado conocido (para deltas)
     _last_ball_xy: np.ndarray | None = None
     _last_robot_xy: dict[int, np.ndarray] = field(default_factory=dict)
@@ -51,7 +64,7 @@ class MatchStats:
     def update_robot_position(
         self, track_id: int, xy_mm: np.ndarray, team: str | None, t_s: float
     ) -> None:
-        """Acumula distancia + velocidad de un robot."""
+        """Acumula distancia + velocidad de un robot, filtrando saltos artefacto."""
         if team:
             self.positions_by_team_mm[team].append(xy_mm.copy())
         self.team_per_track[track_id] = team
@@ -59,23 +72,29 @@ class MatchStats:
             dt = t_s - self._last_t
             if dt > 0:
                 d = float(np.linalg.norm(xy_mm - self._last_robot_xy[track_id]))
-                self.distance_per_track[track_id] += d
-                speed = d / dt
-                if speed > self.max_speed_per_track[track_id]:
-                    self.max_speed_per_track[track_id] = speed
+                if d <= MAX_ROBOT_JUMP_MM:
+                    self.distance_per_track[track_id] += d
+                    speed = d / dt
+                    if speed > self.max_speed_per_track[track_id]:
+                        self.max_speed_per_track[track_id] = speed
+                else:
+                    self.n_jumps_discarded_robots += 1
         self._last_robot_xy[track_id] = xy_mm.copy()
 
     def update_ball_position(self, xy_mm: np.ndarray, t_s: float) -> None:
-        """Acumula distancia + velocidad del balón."""
+        """Acumula distancia + velocidad del balón, filtrando saltos artefacto."""
         if self._last_ball_xy is not None and self._last_t is not None:
             dt = t_s - self._last_t
             if dt > 0:
                 d = float(np.linalg.norm(xy_mm - self._last_ball_xy))
-                self.ball_distance_mm += d
-                speed = d / dt
-                self.ball_speed_samples.append(speed)
-                if speed > self.ball_max_speed_mm_s:
-                    self.ball_max_speed_mm_s = speed
+                if d <= MAX_BALL_JUMP_MM:
+                    self.ball_distance_mm += d
+                    speed = d / dt
+                    self.ball_speed_samples.append(speed)
+                    if speed > self.ball_max_speed_mm_s:
+                        self.ball_max_speed_mm_s = speed
+                else:
+                    self.n_jumps_discarded_ball += 1
         self._last_ball_xy = xy_mm.copy()
 
     def update_possession(self, owner_team: str | None, dt_s: float) -> None:
@@ -150,4 +169,10 @@ class MatchStats:
             },
             "events_by_type": dict(self.event_counts),
             "tracks_seen": len(self.team_per_track),
+            "tracking_artifacts": {
+                "n_jumps_discarded_ball": self.n_jumps_discarded_ball,
+                "n_jumps_discarded_robots": self.n_jumps_discarded_robots,
+                "max_robot_jump_mm": MAX_ROBOT_JUMP_MM,
+                "max_ball_jump_mm": MAX_BALL_JUMP_MM,
+            },
         }

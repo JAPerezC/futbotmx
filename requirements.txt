@@ -34,6 +34,10 @@ scipy==1.17.1
 # --- Utilidades ---
 loguru==0.7.3
 truststore>=0.9    # SSL via cert store del SO (necesario tras Norton/Kaspersky SSL inspection)
+pyyaml>=6.0        # validación de goles (manual_goals.yaml)
+
+# --- LLM (opcional, para commentary_pro.md) ---
+anthropic==0.104.1  # SDK oficial Anthropic. Activado solo si ANTHROPIC_API_KEY presente.
 
 # --- Dev / tests ---
 pytest==9.0.3

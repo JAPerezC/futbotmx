@@ -21,10 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CAMARAS = ROOT / "data" / "raw" / "drive_oficial" / "17Abril" / "Cámaras"
 
 DEFAULT_VIDEOS = [
-    CAMARAS / "IMG_9821.MOV",
-    CAMARAS / "IMG_9811.MOV",
-    CAMARAS / "IMG_9800.MOV",
-    CAMARAS / "IMG_9808.MOV",
+    CAMARAS / "IMG_9863.MOV",
+    CAMARAS / "IMG_9865.MOV",
+    CAMARAS / "IMG_9851.MOV",
+    CAMARAS / "IMG_9855.MOV",
 ]
 
 
@@ -64,17 +64,25 @@ def run_one(video: Path, stride: int) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--stride", type=int, default=5)
+    p.add_argument(
+        "--videos",
+        nargs="+",
+        default=None,
+        help="Rutas absolutas o relativas a videos. Si se omite, usa DEFAULT_VIDEOS.",
+    )
     args = p.parse_args()
 
-    print(f"Procesando {len(DEFAULT_VIDEOS)} videos con stride={args.stride}")
-    for v in DEFAULT_VIDEOS:
+    videos = [Path(v) for v in args.videos] if args.videos else DEFAULT_VIDEOS
+
+    print(f"Procesando {len(videos)} videos con stride={args.stride}")
+    for v in videos:
         if not v.exists():
             print(f"  ERROR: no existe {v}")
             return 1
 
     results = []
     t0 = time.time()
-    for v in DEFAULT_VIDEOS:
+    for v in videos:
         results.append(run_one(v, args.stride))
 
     total = time.time() - t0

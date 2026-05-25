@@ -44,9 +44,12 @@ from src.events.possession import POSSESSION_RADIUS_MM, closest_robot_possession
 from src.events.rules import (
     DAMAGED_TIME_S,
     Event,
+    ball_inside_goal,
     detect_collisions,
+    detect_goal_crossing,
     detect_kick,
     detect_pass_or_interception,
+    goal_line_endpoints,
     is_damaged_robot,
     is_kick,
     is_no_progress,
@@ -476,6 +479,12 @@ def main():
     prev_ball_xy_owner_loss: np.ndarray | None = None
     # Para deduplicar colisiones
     last_collision_t: dict[tuple[int, int], float] = {}
+    # Estado del balón frente a cada portería: ¿estaba ya cruzada la línea?
+    # Solo disparamos "goal" en la transición afuera→adentro, eliminando la
+    # sobre-detección que daba 14 goles cuando el balón quedaba estacionado
+    # dentro del bbox de la portería.
+    was_ball_inside_goal: dict[str, bool] = {color: False for color in goals_by_color}
+    last_goal_time_by_color: dict[str, float] = {}
 
     record = {
         "video": args.video.name,
@@ -640,42 +649,56 @@ def main():
                     current_events.append(ev)
                     match_stats.register_event("kick")
 
-            # Gol: balón DENTRO del bbox de una portería REAL detectada por color.
-            # Mucho más confiable que el ROI virtual en mundo mm: usa la
-            # portería visible (amarilla/azul) detectada en la calibración.
-            if ball_state.found and goals_by_color:
+            # Gol: el balón cruza la LÍNEA DE GOL (arista interior del bbox de
+            # la portería). A diferencia del antiguo "dentro del bbox", esto
+            # solo dispara en la TRANSICIÓN afuera→adentro, así un balón que
+            # se queda estacionado dentro de la portería cuenta una sola vez.
+            # Gol por coordenadas MUNDO (mm): usa homografía + dimensiones del
+            # reglamento + el rango Y REAL de la portería (proyectando su bbox
+            # a mm). El rango fijo W/2±300 fallaba en videos donde la portería
+            # queda descentrada por la perspectiva.
+            if ball_state.found and ball_mm is not None and goals_by_color:
                 ball_px = np.array([ball_state.cx, ball_state.cy], dtype=np.float64)
                 for goal_color, bbox in goals_by_color.items():
-                    x1, y1, x2, y2 = bbox
-                    if x1 <= ball_px[0] <= x2 and y1 <= ball_px[1] <= y2:
-                        # Anti-spam: 1 gol cada 3 segundos
-                        if (
-                            events
-                            and events[-1].type == "goal"
-                            and t_now - events[-1].t < 3.0
-                        ):
-                            break
+                    was_inside = was_ball_inside_goal.get(goal_color, False)
+                    # Lógica final: cruce de la línea de gol (arista interior
+                    # del bbox de portería) con histeresis + cooldown. Las
+                    # variantes con coordenadas mundo (mm) perdían goles
+                    # reales cuando la homografía era imprecisa fuera del
+                    # campo (caso típico en perspectivas oblicuas).
+                    is_inside = ball_inside_goal(
+                        ball_px, bbox, corners, prev_inside=was_inside
+                    )
+                    crossing = detect_goal_crossing(was_inside, is_inside)
+                    last_goal_t = last_goal_time_by_color.get(goal_color, -1e9)
+                    if crossing and t_now > 1.0 and t_now - last_goal_t > 5.0:
+                        last_goal_time_by_color[goal_color] = t_now
                         last_event_id += 1
                         scoring_team = prev_owner_team
+                        bbox = goals_by_color[goal_color]
+                        gl_a, gl_b = goal_line_endpoints(bbox, corners)
                         ev = Event(
                             t=t_now,
                             type="goal",
                             actors=[prev_owner_track] if prev_owner_track else [],
-                            position_mm=(
-                                float(ball_mm[0]) if ball_mm is not None else 0.0,
-                                float(ball_mm[1]) if ball_mm is not None else 0.0,
-                            ),
+                            position_mm=(float(ball_mm[0]), float(ball_mm[1])),
                             confidence=1.0,
                             meta={
                                 "goal_color": goal_color,
                                 "scoring_team": scoring_team,
                                 "ball_px": (float(ball_px[0]), float(ball_px[1])),
+                                "ball_mm": (float(ball_mm[0]), float(ball_mm[1])),
+                                "method": "mm_world_coordinates",
+                                "goal_line_px": [
+                                    [float(gl_a[0]), float(gl_a[1])],
+                                    [float(gl_b[0]), float(gl_b[1])],
+                                ],
                             },
                         )
                         events.append(ev)
                         current_events.append(ev)
                         match_stats.register_event("goal", team=scoring_team)
-                        break
+                    was_ball_inside_goal[goal_color] = is_inside
 
             # Colisiones entre robots (anti-spam 0.5s por par)
             for a, b, d in detect_collisions(robots_mm_this_frame):
@@ -873,11 +896,11 @@ def main():
             annotated = frame.copy()
             # Cuadrilátero del campo (esquinas reales por líneas blancas)
             overlay_polygon(annotated, corners, color=(0, 255, 0))
-            # Porterías reales detectadas por color
+            # Porterías reales detectadas por color + LÍNEA DE GOL marcada
             for goal_color, bbox in goals_by_color.items():
                 x1, y1, x2, y2 = [int(v) for v in bbox]
                 box_color = (0, 255, 255) if goal_color == "yellow" else (255, 100, 0)
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), box_color, 4)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), box_color, 2)
                 cv2.putText(
                     annotated,
                     f"GOAL {goal_color.upper()}",
@@ -885,6 +908,21 @@ def main():
                     cv2.FONT_HERSHEY_DUPLEX,
                     1.0,
                     box_color,
+                    2,
+                    cv2.LINE_AA,
+                )
+                # Línea de gol: arista interior del bbox (la que da al campo).
+                gl_a, gl_b = goal_line_endpoints(bbox, corners)
+                pa = (int(gl_a[0]), int(gl_a[1]))
+                pb = (int(gl_b[0]), int(gl_b[1]))
+                cv2.line(annotated, pa, pb, (0, 0, 255), 5, cv2.LINE_AA)
+                cv2.putText(
+                    annotated,
+                    "linea de gol",
+                    (min(pa[0], pb[0]), max(40, min(pa[1], pb[1]) - 12)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
                     2,
                     cv2.LINE_AA,
                 )

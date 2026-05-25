@@ -79,3 +79,59 @@ def test_positions_by_team_accumulated():
     assert len(s.positions_by_team_mm["A"]) == 1
     assert len(s.positions_by_team_mm["B"]) == 1
     assert "None" not in s.positions_by_team_mm  # None no se guarda
+
+
+def test_robot_jump_filtered():
+    """Salto mayor a MAX_ROBOT_JUMP_MM se descarta del acumulado."""
+    s = MatchStats()
+    s.update_robot_position(1, np.array([0.0, 0.0]), "A", 0.0)
+    s.end_frame(0.0)
+    # Movimiento creíble: 100 mm en 1 s
+    s.update_robot_position(1, np.array([100.0, 0.0]), "A", 1.0)
+    s.end_frame(1.0)
+    # Salto absurdo: 2000 mm en 1 s (artefacto). Debe descartarse.
+    s.update_robot_position(1, np.array([2100.0, 0.0]), "A", 2.0)
+    s.end_frame(2.0)
+    # Movimiento creíble desde la nueva posición: 50 mm en 1 s.
+    s.update_robot_position(1, np.array([2150.0, 0.0]), "A", 3.0)
+    s.end_frame(3.0)
+    # Distancia = 100 (válido) + 50 (válido). El salto de 2000 se descarta.
+    assert abs(s.distance_per_track[1] - 150.0) < 1e-6
+    # Velocidad máxima = 100 mm/s (no 2000 que fue el salto descartado).
+    assert abs(s.max_speed_per_track[1] - 100.0) < 1e-6
+    assert s.n_jumps_discarded_robots == 1
+
+
+def test_ball_jump_filtered():
+    """Salto mayor a MAX_BALL_JUMP_MM se descarta del acumulado."""
+    s = MatchStats()
+    s.update_ball_position(np.array([0.0, 0.0]), 0.0)
+    s.end_frame(0.0)
+    # Golpe creíble: 1000 mm en 1 s (1 m/s, dentro del umbral 1500).
+    s.update_ball_position(np.array([1000.0, 0.0]), 1.0)
+    s.end_frame(1.0)
+    # Teletransporte: 5000 mm en 1 s (artefacto HSV o fallback). Descartar.
+    s.update_ball_position(np.array([6000.0, 0.0]), 2.0)
+    s.end_frame(2.0)
+    # Continúa desde la nueva posición: 500 mm en 1 s.
+    s.update_ball_position(np.array([6500.0, 0.0]), 3.0)
+    s.end_frame(3.0)
+    # Distancia = 1000 + 500 (el salto de 5000 se descarta).
+    assert abs(s.ball_distance_mm - 1500.0) < 1e-6
+    assert abs(s.ball_max_speed_mm_s - 1000.0) < 1e-6
+    assert s.n_jumps_discarded_ball == 1
+    # Solo 2 muestras de velocidad válidas (la del salto no se registra).
+    assert len(s.ball_speed_samples) == 2
+
+
+def test_to_dict_includes_tracking_artifacts():
+    s = MatchStats()
+    s.update_ball_position(np.array([0.0, 0.0]), 0.0)
+    s.end_frame(0.0)
+    s.update_ball_position(np.array([5000.0, 0.0]), 1.0)  # salto descartado
+    s.end_frame(1.0)
+    d = s.to_dict()
+    assert "tracking_artifacts" in d
+    assert d["tracking_artifacts"]["n_jumps_discarded_ball"] == 1
+    assert d["tracking_artifacts"]["max_ball_jump_mm"] == 1500.0
+    assert d["tracking_artifacts"]["max_robot_jump_mm"] == 500.0

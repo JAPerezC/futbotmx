@@ -1,0 +1,78 @@
+# Detecciones de gol agrupadas (autogenerado).
+# Úsalo como guía para revisar el video y llenar manual_goals.yaml.
+
+IMG_9800:
+- goal_color: yellow
+  n_raw_detections: 1
+  scoring_team: A
+  t_center_s: 8.34
+  t_end_s: 8.34
+  t_start_s: 8.34
+- goal_color: yellow
+  n_raw_detections: 2
+  scoring_team: null
+  t_center_s: 35.93
+  t_end_s: 36.02
+  t_start_s: 35.85
+- goal_color: yellow
+  n_raw_detections: 4
+  scoring_team: A
+  t_center_s: 57.94
+  t_end_s: 58.19
+  t_start_s: 57.69
+- goal_color: yellow
+  n_raw_detections: 2
+  scoring_team: A
+  t_center_s: 69.61
+  t_end_s: 69.7
+  t_start_s: 69.53
+IMG_9808: []
+IMG_9811:
+- goal_color: yellow
+  n_raw_detections: 3
+  scoring_team: A
+  t_center_s: 40.1
+  t_end_s: 41.35
+  t_start_s: 38.85
+- goal_color: yellow
+  n_raw_detections: 1
+  scoring_team: null
+  t_center_s: 58.69
+  t_end_s: 58.69
+  t_start_s: 58.69
+IMG_9821:
+- goal_color: yellow
+  n_raw_detections: 1
+  scoring_team: A
+  t_center_s: 28.35
+  t_end_s: 28.35
+  t_start_s: 28.35
+- goal_color: yellow
+  n_raw_detections: 1
+  scoring_team: null
+  t_center_s: 36.85
+  t_end_s: 36.85
+  t_start_s: 36.85
+- goal_color: yellow
+  n_raw_detections: 2
+  scoring_team: null
+  t_center_s: 56.44
+  t_end_s: 57.69
+  t_start_s: 55.19
+video-1054:
+- goal_color: null
+  n_raw_detections: 1
+  scoring_team: A
+  t_center_s: 50.75
+  t_end_s: 50.75
+  t_start_s: 50.75
+video-1054_clip45-65:
+- goal_color: null
+  n_raw_detections: 1
+  scoring_team: null
+  t_center_s: 5.89
+  t_end_s: 5.89
+  t_start_s: 5.89
+video-943: []
+video-974: []
+video-988: []

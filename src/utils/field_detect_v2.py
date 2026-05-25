@@ -278,34 +278,46 @@ def detect_goals_by_color(
     frame_bgr: np.ndarray, green_mask: np.ndarray | None = None
 ) -> list[GoalDetection]:
     """Encuentra portería AMARILLA y AZUL como componentes conexos de mayor área
-    pegados al fieltro verde."""
+    pegados al fieltro verde.
+
+    La portería azul suele estar parcialmente ocluida (manos del público, sombras)
+    y su HSV cae en rangos cercanos al negro: aplicamos dilatación generosa del
+    ROI, cierre morfológico para reconectar fragmentos, y área mínima más baja
+    para no descartar por ruido cuando solo se ve un trozo de la caja.
+    """
     if green_mask is None:
         green_mask = segment_field_mask(frame_bgr)
     h_img, w_img = frame_bgr.shape[:2]
-    # ROI extendido al borde para capturar porterías colocadas en el lateral.
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (45, 45))
+    # ROI extendido generoso para capturar porterías ocluidas en el lateral.
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (75, 75))
     near_field = cv2.dilate(green_mask, kernel)
 
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
     goals: list[GoalDetection] = []
-    for color, lo, hi in (
-        ("yellow", YELLOW_HSV_LOWER, YELLOW_HSV_UPPER),
-        ("blue", BLUE_HSV_LOWER, BLUE_HSV_UPPER),
-    ):
+    color_params = (
+        ("yellow", YELLOW_HSV_LOWER, YELLOW_HSV_UPPER, 0.002),
+        ("blue", BLUE_HSV_LOWER, BLUE_HSV_UPPER, 0.0008),
+    )
+    for color, lo, hi, area_min_frac in color_params:
         m = cv2.inRange(hsv, lo, hi)
         m = cv2.bitwise_and(m, near_field)
         m = cv2.morphologyEx(
             m,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)),
+        )
+        m = cv2.morphologyEx(
+            m,
             cv2.MORPH_OPEN,
-            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)),
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
         )
         contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             continue
         c = max(contours, key=cv2.contourArea)
         area = float(cv2.contourArea(c))
-        if area < 0.002 * h_img * w_img:
-            continue  # ruido
+        if area < area_min_frac * h_img * w_img:
+            continue
         x, y, w, h = cv2.boundingRect(c)
         bbox = np.array([x, y, x + w, y + h], dtype=np.int32)
         M = cv2.moments(c)
@@ -324,18 +336,130 @@ def detect_goals_by_color(
     return goals
 
 
+def _sector_corners(
+    hull_points: np.ndarray, h_img: int, w_img: int
+) -> np.ndarray | None:
+    """4 vértices únicos del hull tomando el más lejano al centroide por cuadrante.
+
+    Garantiza 4 puntos únicos (no colapsados) siempre que el hull cubra los
+    4 cuadrantes alrededor de su centroide. Más robusto que argmin/argmax
+    de x±y cuando el campo se extiende hasta el borde de la imagen (en cuyo
+    caso varios vértices del hull comparten el mismo x extremo).
+    """
+    pts = hull_points.reshape(-1, 2).astype(np.float64)
+    cx, cy = pts.mean(axis=0)
+    quadrant_filters = [
+        (lambda p, cx=cx, cy=cy: p[0] <= cx and p[1] <= cy),  # TL
+        (lambda p, cx=cx, cy=cy: p[0] >= cx and p[1] <= cy),  # TR
+        (lambda p, cx=cx, cy=cy: p[0] >= cx and p[1] >= cy),  # BR
+        (lambda p, cx=cx, cy=cy: p[0] <= cx and p[1] >= cy),  # BL
+    ]
+    out: list[np.ndarray] = []
+    for f in quadrant_filters:
+        cands = pts[[i for i, p in enumerate(pts) if f(p)]]
+        if len(cands) == 0:
+            return None
+        dist = np.hypot(cands[:, 0] - cx, cands[:, 1] - cy)
+        out.append(cands[int(np.argmax(dist))])
+    return np.array(out, dtype=np.float64)
+
+
+def detect_field_corners_from_white_mask(
+    frame_bgr: np.ndarray,
+    dilate_px: int = 25,
+    close_px: int = 71,
+    min_area_frac: float = 0.10,
+    min_diag_separation_frac: float = 0.08,
+) -> tuple[np.ndarray | None, dict]:
+    """Detecta el cuadrilátero del campo usando la máscara blanca como evidencia.
+
+    Estrategia: las líneas blancas perimetrales (sidelines) ya forman el
+    cuadrilátero. Dilatamos para conectar segmentos, cerramos huecos,
+    concatenamos TODOS los contornos no triviales en un solo nube de puntos
+    y aplicamos convex hull + selección por cuadrantes.
+
+    Returns:
+        (corners (4,2) TL,TR,BR,BL, debug_dict) ó (None, debug_dict).
+    """
+    h_img, w_img = frame_bgr.shape[:2]
+    diag_img = float(np.hypot(h_img, w_img))
+
+    wide_green, strict_green = _make_field_roi(frame_bgr)
+    kernel_roi = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (35, 35))
+    field_roi = cv2.dilate(strict_green, kernel_roi)
+
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+    white = cv2.inRange(hsv, WHITE_HSV_LOWER, WHITE_HSV_UPPER)
+    white = cv2.bitwise_and(white, field_roi)
+
+    dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_px, dilate_px))
+    white_d = cv2.dilate(white, dilate_k)
+    close_k = cv2.getStructuringElement(cv2.MORPH_RECT, (close_px, close_px))
+    white_closed = cv2.morphologyEx(white_d, cv2.MORPH_CLOSE, close_k)
+
+    contours, _ = cv2.findContours(
+        white_closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    debug: dict = {"n_contours": len(contours)}
+    if not contours:
+        return None, {**debug, "fail": "sin contornos"}
+
+    # Concatenar puntos de todos los contornos no triviales para que la
+    # fragmentación no excluya zonas del campo (las líneas blancas suelen
+    # fracturarse al pasar bajo robots o cerca de sombras).
+    min_contour_area = 0.005 * h_img * w_img
+    big_contours = [c for c in contours if cv2.contourArea(c) >= min_contour_area]
+    debug["n_contours_kept"] = len(big_contours)
+    if not big_contours:
+        big_contours = [max(contours, key=cv2.contourArea)]
+
+    all_pts = np.vstack([c.reshape(-1, 2) for c in big_contours])
+    combined_area = float(
+        cv2.contourArea(cv2.convexHull(all_pts.reshape(-1, 1, 2).astype(np.int32)))
+    )
+    area_frac = combined_area / (h_img * w_img)
+    debug["area_frac"] = area_frac
+    if area_frac < min_area_frac:
+        return None, {**debug, "fail": f"hull pequeño ({area_frac:.2f})"}
+
+    hull = cv2.convexHull(all_pts.reshape(-1, 1, 2).astype(np.int32))
+    corners = _sector_corners(hull, h_img, w_img)
+    if corners is None:
+        return None, {**debug, "fail": "hull no cubre los 4 cuadrantes"}
+
+    min_sep = min_diag_separation_frac * diag_img
+    for i in range(4):
+        for j in range(i + 1, 4):
+            if float(np.linalg.norm(corners[i] - corners[j])) < min_sep:
+                return None, {
+                    **debug,
+                    "fail": f"esquinas {i},{j} colapsadas",
+                }
+
+    return corners, {**debug, "method_inner": "white_mask_hull_sectors"}
+
+
 def detect_field_geometry(frame_bgr: np.ndarray) -> FieldGeometryV2:
     """Detecta esquinas blancas + porterías en un solo pase.
 
-    Estrategia híbrida: intenta primero con líneas blancas Hough (esquinas
-    REALES del campo de juego). Si falla, cae al detector hull (esquinas
-    del fieltro verde, menos preciso pero más robusto a motion blur).
+    Cascada de métodos (de más preciso a más robusto):
+    1. Hough sobre líneas blancas + clustering por ángulo (esquinas exactas
+       cuando las sidelines se ven limpias y completas).
+    2. Convex hull de la máscara blanca dilatada (extremos diagonales).
+       Robusto cuando las líneas están fragmentadas u oclusas en un lado.
+    3. Convex hull del fieltro verde (último recurso, menos preciso porque
+       el verde se "corta" al perímetro de la mesa con sombras).
     """
     wide_green, strict_green = _make_field_roi(frame_bgr)
     corners, debug = detect_white_field_lines(frame_bgr)
     method = "white_lines"
     if corners is None:
-        # Fallback robusto: convex hull del fieltro.
+        corners2, debug2 = detect_field_corners_from_white_mask(frame_bgr)
+        debug.update({f"v3_{k}": v for k, v in debug2.items()})
+        if corners2 is not None:
+            corners = corners2
+            method = "white_mask_hull"
+    if corners is None:
         from src.utils.field_detect import detect_field_corners_hull
 
         hull_res = detect_field_corners_hull(frame_bgr)

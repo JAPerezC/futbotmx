@@ -1,0 +1,26 @@
+# Goles reales anotados por humano (ground truth para validación honesta).
+#
+# Instrucciones:
+#   1. Abrir cada video listado abajo en data/raw/drive_oficial/17Abril/Cámaras/.
+#   2. Contar a ojo cuántos goles REALES hubo (que entren a la portería).
+#   3. Anotar timestamp aproximado de cada uno (basta precisión de ±2 s).
+#   4. Anotar el color de la portería en que entra: yellow | blue | "?".
+#   5. Si un video no tiene goles, dejar lista vacía: [].
+#
+# Formato por video:
+#   nombre_video_sin_extension:
+#     - {t: tiempo_segundos, goal_color: "yellow|blue|?", notes: "..."}
+#
+# El script scripts/eval_goal_detection.py compara contra events.json (rule-based).
+# Reporta Precision/Recall/F1 con tolerancia temporal de ±2 s.
+#
+# Referencia: ver tests/data/detections_reference.yaml para los timestamps que
+# detectó el pipeline (después de fusionar consecutivos). Eso acelera la revisión.
+
+IMG_9821: []
+IMG_9811: []
+IMG_9800: []
+IMG_9863: []
+IMG_9865: []
+IMG_9851: []
+IMG_9855: []

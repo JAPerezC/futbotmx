@@ -47,6 +47,142 @@ PASS_MIN_TRANSLATION_MM = 300.0  # balón se mueve >30 cm para considerar pase
 COLLISION_DIST_MM = 50.0  # 2 robots en contacto (cuerpo a cuerpo)
 
 
+def ball_inside_goal(
+    ball_px: np.ndarray,
+    goal_bbox_xyxy: np.ndarray,
+    field_corners: np.ndarray,
+    deadband_px: float = 25.0,
+    prev_inside: bool = False,
+) -> bool:
+    """Determina si el balón ya cruzó la línea de gol de una portería.
+
+    Línea de gol = arista del bbox de la portería más cercana al centro del
+    campo. Calculamos la distancia signada del balón al punto medio de esa
+    arista (positivo = lado campo, negativo = dentro de la portería).
+
+    Histeresis con deadband: para evitar oscilaciones cuando el balón está
+    pegado a la línea, una vez "adentro" se sigue contando adentro hasta
+    que delta > +deadband_px; una vez "afuera" se cuenta afuera hasta que
+    delta < -deadband_px. Esto suprime el flicker del centroide del balón
+    (que vibra ±10 px por frame) cuando rueda sobre la línea.
+    """
+    bbox = np.asarray(goal_bbox_xyxy, dtype=np.float64).reshape(4)
+    x1, y1, x2, y2 = bbox
+    goal_center = np.array([(x1 + x2) / 2, (y1 + y2) / 2], dtype=np.float64)
+    field_center = (
+        np.asarray(field_corners, dtype=np.float64).reshape(-1, 2).mean(axis=0)
+    )
+    direction = field_center - goal_center
+    norm = float(np.linalg.norm(direction))
+    if norm < 1e-3:
+        return False
+    direction /= norm
+    bbox_corners = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float64)
+    projections = (bbox_corners - goal_center) @ direction
+    order = np.argsort(-projections)
+    edge_midpoint = bbox_corners[order[:2]].mean(axis=0)
+    ball = np.asarray(ball_px, dtype=np.float64).reshape(2)
+    delta = float((ball - edge_midpoint) @ direction)
+    if prev_inside:
+        return delta < deadband_px
+    return delta < -deadband_px
+
+
+def goal_line_endpoints(
+    goal_bbox_xyxy: np.ndarray, field_corners: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Devuelve los 2 puntos en imagen que forman la línea de gol.
+
+    Útil para visualización (dibujar la línea proyectada sobre el campo) y
+    para diagnóstico.
+    """
+    bbox = np.asarray(goal_bbox_xyxy, dtype=np.float64).reshape(4)
+    x1, y1, x2, y2 = bbox
+    goal_center = np.array([(x1 + x2) / 2, (y1 + y2) / 2], dtype=np.float64)
+    field_center = (
+        np.asarray(field_corners, dtype=np.float64).reshape(-1, 2).mean(axis=0)
+    )
+    direction = field_center - goal_center
+    norm = float(np.linalg.norm(direction))
+    if norm < 1e-3:
+        return np.array([x1, y1]), np.array([x2, y2])
+    direction /= norm
+    bbox_corners = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float64)
+    projections = (bbox_corners - goal_center) @ direction
+    order = np.argsort(-projections)
+    return bbox_corners[order[0]], bbox_corners[order[1]]
+
+
+def detect_goal_crossing(was_inside: bool, is_inside_now: bool) -> bool:
+    """Detecta el momento exacto en que el balón cruza la línea de gol.
+
+    Solo dispara en la transición afuera→adentro. Evita la sobre-detección
+    típica de "balón dentro de la portería" durante varios frames seguidos.
+    """
+    return is_inside_now and not was_inside
+
+
+# === Detección de gol por coordenadas mundo (mm) — fix B ===
+#
+# Más robusto que la versión por bbox de portería en imagen porque NO depende
+# de la perspectiva del frame ni de qué tan bien quedó el bbox de la portería:
+# usa la homografía validada (que sí sabemos correcta tras audit_homography) y
+# las dimensiones fijas del reglamento.
+#
+# Convención (ver src/utils/calib.py):
+#   x ∈ [0, FIELD_LENGTH_MM] — lado largo, portería YELLOW en x≈0, BLUE en x≈L
+#   y ∈ [0, FIELD_WIDTH_MM]  — lado corto, portería centrada en y≈W/2
+
+GOAL_LINE_TOLERANCE_MM = 30.0  # zona muerta antes de la línea (perfecciona FP)
+
+
+def ball_inside_goal_mm(
+    ball_mm: np.ndarray,
+    goal_color: str,
+    deadband_mm: float = GOAL_LINE_TOLERANCE_MM,
+    prev_inside: bool = False,
+    field_length_mm: float = FIELD_LENGTH_MM,
+    field_width_mm: float = FIELD_WIDTH_MM,
+    goal_half_width_mm: float = GOAL_HALF_WIDTH_MM,
+    goal_y_range_mm: tuple[float, float] | None = None,
+) -> bool:
+    """Determina si el balón cruzó la línea de gol usando coordenadas mundo.
+
+    - "yellow": línea de gol en x = 0. Gol si ball.x < -deadband Y la y del
+      balón está dentro del ancho de la portería (W/2 ± goal_half_width).
+    - "blue": línea de gol en x = field_length. Gol si ball.x > L+deadband.
+
+    Histeresis: una vez adentro, sigue adentro hasta delta > +deadband.
+
+    Esta función NO usa el bbox de la portería en imagen — solo coordenadas
+    mundo derivadas de la homografía, así no le afecta el flicker del balón
+    cuando pasa cerca de un robot que oculta la portería en perspectiva.
+    """
+    ball = np.asarray(ball_mm, dtype=np.float64).reshape(2)
+    bx, by = float(ball[0]), float(ball[1])
+    if goal_y_range_mm is not None:
+        y_min, y_max = goal_y_range_mm
+        in_goal_height = y_min - deadband_mm <= by <= y_max + deadband_mm
+    else:
+        y_center = field_width_mm / 2
+        in_goal_height = abs(by - y_center) <= goal_half_width_mm
+    if goal_color == "yellow":
+        delta = bx
+        if prev_inside:
+            inside = delta < deadband_mm
+        else:
+            inside = delta < -deadband_mm
+    elif goal_color == "blue":
+        delta = field_length_mm - bx
+        if prev_inside:
+            inside = delta < deadband_mm
+        else:
+            inside = delta < -deadband_mm
+    else:
+        return False
+    return bool(inside and in_goal_height)
+
+
 @dataclass(frozen=True)
 class Event:
     t: float  # segundos desde inicio del video
