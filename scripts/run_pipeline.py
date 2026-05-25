@@ -1058,6 +1058,17 @@ def main():
     except Exception as e:
         print(f"  WARN minimap falló: {e}")
 
+    # Narrativa automática del partido (commentary.md + commentary.txt)
+    try:
+        from scripts.render_commentary import build_commentary
+
+        md, plain = build_commentary(args.out)
+        (args.out / "commentary.md").write_text(md, encoding="utf-8")
+        (args.out / "commentary.txt").write_text(plain, encoding="utf-8")
+        print(f"  commentary: {args.out / 'commentary.md'}")
+    except Exception as e:
+        print(f"  WARN commentary falló: {e}")
+
     print("\n=== RESUMEN ===")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     print(f"\nOutputs en: {args.out}")

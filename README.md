@@ -132,6 +132,7 @@ Outputs por run en `data/processed/runs/<videoname>/`:
 | `trails.png` | Trayectorias completas top-down con porterías amarilla/azul |
 | `voronoi_final.png` | Control de espacio en último frame, coloreado por equipo |
 | `minimap.mp4` | **Vista cenital sintetizada** del partido (top-down) con marcador, posesión, robots por equipo, balón con trail y eventos. Generado a partir de la homografía y `tracks.json`. Estilo SoccerNet Broadcast-to-Minimap. |
+| `commentary.md` · `commentary.txt` | **Crónica automática en español** del partido: resumen ejecutivo, cronología de eventos destacados, desglose por tipo, limitaciones honestas detectadas. Útil para reel/subtítulos. |
 
 El video lado a lado para el jurado (≤ 2 min) se genera con
 `scripts/make_side_by_side.py`. Para reproducir velocidad real con
