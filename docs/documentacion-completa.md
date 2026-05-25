@@ -468,12 +468,12 @@ La convocatoria define cuatro líneas posibles de innovación sobre SAM 3
 
    | Métrica | SAM 3 base | Con LoRA | Mejora |
    |---|---|---|---|
-   | IoU global | 0.046 | **0.895** | **+1844 %** |
-   | IoU robots | 0.049 | **0.934** | +1796 % |
-   | IoU balón | 0.036 | **0.776** | +2050 % |
+   | IoU global | 0.046 | **0.912** | **+1882 %** |
+   | IoU robots | 0.049 | **0.956** | +1839 % |
+   | IoU balón | 0.036 | **0.780** | +2059 % |
 
    El modelo afinado segmenta casi 20 veces mejor que el base en nuestro
-   dominio, entrenando en **menos de 17 minutos**.
+   dominio, entrenando en **menos de 17 minutos** sobre RTX 5080.
 
 3. **Integración con trackers**: combinamos SAM 3 con OC-SORT (robots) y un
    filtro de Kalman (balón), algo que el modelo base no hace por sí solo.

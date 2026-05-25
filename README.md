@@ -86,19 +86,19 @@ Cubrimos **las cuatro** líneas oficiales:
    × 80 samples en **16.8 min** sobre RTX 5080. Flujo en
    [`docs/lora-finetuning.md`](docs/lora-finetuning.md).
 
-   **Resultados cuantitativos** (validación rigurosa, 60 samples val
-   por split por video, sin leakage):
+   **Resultados cuantitativos** (validación rigurosa, 60 samples del val
+   split por video, sin leakage; checkpoint `lora_best_iou0.908_ep12`):
 
    | Métrica | SAM 3.1 base | LoRA fine-tuned | Mejora |
    |---|---|---|---|
-   | **mIoU global** | 0.046 | **0.895** | **+1844%** |
-   | mIoU robots | 0.049 | **0.934** | +1796% |
-   | mIoU balón | 0.036 | **0.776** | +2050% |
+   | **mIoU global** | 0.046 | **0.912** | **+1882%** |
+   | mIoU robots | 0.049 | **0.956** | +1839% |
+   | mIoU balón | 0.036 | **0.780** | +2059% |
 
    Reporte completo en
-   `data/processed/lora_checkpoints/validation_lora_best_iou0.879_ep15.json`.
+   `data/processed/lora_checkpoints/validation_lora_best_iou0.908_ep12.json`.
    Reproducible con
-   `python scripts/validate_lora.py --ckpt <path>`.
+   `python scripts/validate_lora.py --ckpt data/processed/lora_checkpoints/lora_best_iou0.908_ep12`.
 
 Estado del arte 2026 cruzado vía survey externo + bibliografía
 ([`refs.bib`](refs.bib)) con foco en `teamaware_sam_2025`,
