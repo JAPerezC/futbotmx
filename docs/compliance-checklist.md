@@ -1,61 +1,49 @@
 # Checklist de cumplimiento — Convocatoria FutBotMX 2026
 
-> Última revisión: 2026-05-19
+> Última revisión: 2026-05-25
 > Fuente: convocatoria oficial (16 pp) + reglas del torneo (18 pp)
 > Verificación final obligatoria antes del **2026-06-19 23:59**
 
-## Estado de hoy (2026-05-19)
+## Estado al 2026-05-25 (post-deadline humano)
 
-- 80→83 tests verdes (3 nuevos: recompute online, (h,s) tuples, votación temporal)
-- AdaptiveTeamClassifier v2: warmup 30f, recompute cada 15f, vote_window 20,
-  uso de saturación además de hue. Resuelve el colapso 100%/0% A
-  observado en 3 de 4 videos del último batch.
-- Detector v2 (líneas blancas + porterías por color) integrado al pipeline
-- Bibliografía actualizada con 7 entradas del estado del arte 2026
-  (PnLCalib, SAM3_LoRA, BoT-SORT, OSNet, STRIKER, etc.)
-- Investigador externo confirma: votación temporal era exactamente el fix
-  que necesitábamos (paper STRIKER IJRIAS 2026)
+- **Registro Secihti COMPLETADO** (confirmado por el equipo el 25-may)
+- **Reel Instagram PUBLICADO** (confirmado por el equipo el 25-may)
+- **Repo PÚBLICO** desde el 20-may en `github.com/JAPerezC/futbotmx-ajolotesfc`
+- Equipo **AJOLOTES FC** con 4 integrantes inscritos en Categoría Profesional
+- 83 tests verdes, 27+ commits, pipeline end-to-end funcional
+- Innovación § 3.7.3: **4/4 líneas** cubiertas con evidencia cuantitativa
+  - LoRA fine-tuned: mIoU 0.046 → **0.912** (+1882%)
+- Visualizaciones (§ 3.5.2): heatmap, heatmap_team, trails, voronoi,
+  dashboard HTML interactivo, **minimap top-down animado**, **crónica
+  automática** del partido
+- Documentación didáctica (`docs/documentacion-completa.pdf`, 15 págs)
 
 Leyenda: ✅ hecho · ⏳ en curso · ❌ pendiente · ⚠ riesgo descalificación
 
-## 1. Registro (§ 3.10) — deadline 2026-05-22 23:59
+## 1. Registro (§ 3.10) — deadline 2026-05-22 23:59 — CERRADO
 
-- ❌ Formulario en línea llenado (https://forms.cloud.microsoft/r/m8cwt7D7i0)
-- ❌ Nombre del equipo definido
-- ❌ Datos de cada integrante: nombre completo, edad, institución,
-  estado y ciudad de procedencia
-- ❌ Correo electrónico de contacto del equipo
-- ❌ Teléfono de contacto del equipo
-- ❌ Categoría seleccionada: **Profesional** (forzosa por cláusula 3.7.1)
-- ❌ Liga a carpeta digital con documentación 3.3.1
-- ❌ Enlace al repositorio público en GitHub
-- ❌ Aceptación expresa de las bases de la convocatoria
+- ✅ Formulario en línea llenado (https://forms.cloud.microsoft/r/m8cwt7D7i0)
+- ✅ Nombre del equipo: **AJOLOTES FC**
+- ✅ Datos de cada integrante
+- ✅ Correo electrónico de contacto
+- ✅ Teléfono de contacto
+- ✅ Categoría: **Profesional**
+- ✅ Liga a carpeta digital con documentación 3.3.1
+- ✅ Enlace al repositorio público en GitHub
+- ✅ Aceptación expresa de las bases
 
-## 2. Documentación de identidad (§ 3.3.1)
+## 2. Documentación de identidad (§ 3.3.1) — entregada al formulario
 
-Por cada integrante mexicano: cualquiera de
-- ❌ INE
-- ❌ Pasaporte mexicano
-- ❌ Cédula profesional
-- ❌ Cartilla militar
+- ✅ Documentos oficiales de los 4 integrantes en PDF en la carpeta
+  digital enlazada al formulario
 
-Por cada integrante extranjero con residencia en México:
-- ❌ Pasaporte vigente + tarjeta de residente o FMM
+## 3. Composición del equipo (§ 3.3.2)
 
-Todos los documentos deben:
-- ❌ Estar en formato PDF, legibles
-- ❌ Coincidir con los datos del formulario
-- ❌ Estar vigentes
-
-## 3. Composición del equipo (§ 3.3.2 y reglamento § 2.1)
-
-- ❌ Mínimo 2, máximo 4 integrantes
-  (convocatoria permite individual, reglamento exige ≥2; aplica el más
-  restrictivo si participamos en el torneo presencial; para el reto CV solo,
-  la convocatoria permite individual)
-- ❌ Todos mayores de 18 años (CV) / o cumplir rango etario del reglamento
-- ❌ Todos mexicanos o extranjeros con residencia
-- ❌ Cada integrante con perfil público (GitHub o LinkedIn)
+- ✅ 4 integrantes (Macias Sobrino, De Unanue Tiscareño, Cisneros
+  Villarán, Pérez Castellanos)
+- ✅ Todos mayores de 18 años
+- ✅ Todos mexicanos / residentes en México
+- ✅ Perfiles GitHub o LinkedIn en el formulario
 - ⚠ **Ningún integrante puede ser funcionario o servidor público
   federal/estatal/local** si se quiere recibir premio monetario o en
   especie (§ 3.9). Verificar antes de inscribir.
