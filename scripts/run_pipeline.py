@@ -44,6 +44,7 @@ from src.events.possession import POSSESSION_RADIUS_MM, closest_robot_possession
 from src.events.rules import (
     DAMAGED_TIME_S,
     Event,
+    ball_inside_goal,
     ball_inside_goal_field,
     detect_collisions,
     detect_goal_crossing,
@@ -669,13 +670,25 @@ def main():
                         dtype=np.float64,
                     )
                     goal_line = goal_line_from_field_edge(corners, goal_centroid)
-                    is_inside = ball_inside_goal_field(
+                    # AND-detector: balón cruzó AMBAS líneas para contar gol.
+                    # - is_inside_field: cruzó la arista del CAMPO (geométrico,
+                    #   robusto al drift del bbox HSV).
+                    # - is_inside_bbox: cruzó la arista del bbox HSV con filtro
+                    #   lateral (verifica que el balón esté lateralmente CERCA
+                    #   del arco real, no solo cruzando la línea geométrica).
+                    # AND elimina FP donde el balón salta a posiciones espurias
+                    # del fallback HSV (objetos amarillos detrás del campo).
+                    is_inside_field = ball_inside_goal_field(
                         ball_px,
                         goal_line,
                         corners,
                         prev_inside=was_inside,
                         goal_bbox_xyxy=bbox,
                     )
+                    is_inside_bbox = ball_inside_goal(
+                        ball_px, bbox, corners, prev_inside=was_inside
+                    )
+                    is_inside = is_inside_field and is_inside_bbox
                     crossing = detect_goal_crossing(was_inside, is_inside)
                     last_goal_t = last_goal_time_by_color.get(goal_color, -1e9)
                     if crossing and t_now > 1.0 and t_now - last_goal_t > 5.0:
@@ -694,11 +707,12 @@ def main():
                                 "scoring_team": scoring_team,
                                 "ball_px": (float(ball_px[0]), float(ball_px[1])),
                                 "ball_mm": (float(ball_mm[0]), float(ball_mm[1])),
-                                "method": "field_edge_with_lateral_filter",
+                                "method": "AND_field_edge_and_bbox_edge",
                                 "goal_line_px": [
                                     [float(gl_a[0]), float(gl_a[1])],
                                     [float(gl_b[0]), float(gl_b[1])],
                                 ],
+                                "goal_bbox_xyxy": [float(v) for v in bbox],
                             },
                         )
                         events.append(ev)
