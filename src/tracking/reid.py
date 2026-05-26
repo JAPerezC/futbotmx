@@ -52,13 +52,27 @@ def _dominant_hue(
 
 
 def _dominant_feature(
-    image_bgr: np.ndarray, bbox_xyxy, top_fraction: float = 0.5
+    image_bgr: np.ndarray,
+    bbox_xyxy,
+    top_fraction: float = 0.5,
+    central_crop_frac: float = 1.0,
+    min_saturation: int = 50,
+    exclude_green_field: bool = False,
 ) -> tuple[int, int] | None:
     """Devuelve (hue, saturation) dominantes (0-179, 0-255) del bbox.
 
-    Usa la mitad superior del bbox (donde típicamente está la bandera/
-    casaca del robot, no el suelo verde). Filtra pixeles oscuros y
-    desaturados.
+    Estrategia v3 (ajustada tras diagnóstico de IMG_9821_v4):
+    - **Tercio superior** del bbox (no la mitad): la bandera del robot está
+      en la cumbre. La mitad inferior captura cuerpo + sombra + fieltro verde
+      cuando el bbox es grande, sesgando el matiz dominante hacia hue=70-80.
+    - **Crop central lateral**: descarta `(1-central_crop_frac)/2` de cada
+      lado para evitar capturar fieltro verde que aparece a los costados del
+      robot pequeño (~30×30 px) dentro de un bbox más grande.
+    - **Filtro de saturación estricto**: S>=80 (no 50). El fieltro verde
+      saturado puede llegar a S~50-70, pero los colores de bandera son
+      mucho más saturados.
+    - **Excluir verde del fieltro**: si exclude_green_field, descarta el
+      bin de hue 60-90 (verde robótico). Las banderas no usan ese rango.
     """
     x1, y1, x2, y2 = [int(round(v)) for v in bbox_xyxy]
     x1, y1 = max(0, x1), max(0, y1)
@@ -67,21 +81,30 @@ def _dominant_feature(
     if x2 <= x1 or y2 <= y1:
         return None
     yh = y1 + int(round((y2 - y1) * top_fraction))
-    patch = image_bgr[y1:yh, x1:x2]
+    w = x2 - x1
+    margin = int(round(w * (1 - central_crop_frac) / 2))
+    xa = x1 + margin
+    xb = x2 - margin
+    if xb <= xa:
+        xa, xb = x1, x2
+    patch = image_bgr[y1:yh, xa:xb]
     if patch.size == 0:
         return None
     hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)
-    valid = (hsv[:, :, 2] > 60) & (hsv[:, :, 1] > 50)
-    if int(valid.sum()) < 30:
+    valid = (hsv[:, :, 2] > 60) & (hsv[:, :, 1] >= min_saturation)
+    if int(valid.sum()) < 20:
         return None
     valid_pixels = hsv[valid]
     hues = valid_pixels[:, 0]
     sats = valid_pixels[:, 1]
-    # histograma circular de 18 bins (cada bin = 10°)
     hue_counts = np.bincount(hues // 10, minlength=18)
+    if exclude_green_field:
+        # Excluir bins 6, 7, 8 (hue 60-89) que corresponden al verde del fieltro
+        hue_counts[6:9] = 0
+    if hue_counts.sum() < 20:
+        return None
     dom_bin = int(np.argmax(hue_counts))
     dom_hue = dom_bin * 10
-    # saturación mediana de los pixeles en el bin dominante
     in_bin = (hues // 10) == dom_bin
     dom_sat = int(np.median(sats[in_bin])) if in_bin.any() else int(np.median(sats))
     return dom_hue, dom_sat

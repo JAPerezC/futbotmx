@@ -407,10 +407,11 @@ def parse_args():
     p.add_argument(
         "--recalib-every",
         type=int,
-        default=60,
+        default=30,
         help=(
-            "recalibrar porterías por color cada N frames procesados; 0 desactiva. "
-            "Compensa el drift del bbox cuando la cámara se mueve (defecto 60)."
+            "recalibrar esquinas del campo + porterías cada N frames procesados; "
+            "0 desactiva. Compensa el drift cuando la cámara se mueve "
+            "(defecto 30 ≈ 5 s a stride=5, fps=30)."
         ),
     )
     return p.parse_args()
@@ -501,27 +502,169 @@ def main():
     try:
         n_processed = 0
         t_start = time.time()
-        # Recalibración online de porterías: cada N frames procesados,
-        # re-detectamos las porterías por color y actualizamos goals_by_color.
-        # Resuelve el drift cuando la cámara se mueve (el bbox calibrado en
-        # frame 0 deja de coincidir con la portería real).
+        # Tracking de cámara con HOMOGRAFÍA GLOBAL + RANSAC:
+        #
+        # Aprendizaje de v5 (commit anterior): trackear las 4 esquinas con
+        # cv2.calcOpticalFlowPyrLK directamente FALLA cuando una esquina está
+        # cerca de un robot móvil — el patch de la esquina captura al robot
+        # y la esquina "sigue al robot" en lugar del campo.
+        #
+        # Solución v6: estimar el movimiento GLOBAL de la cámara con muchos
+        # features distribuidos en el frame + RANSAC. Pasos:
+        #   1. cv2.goodFeaturesToTrack → ~200 puntos esparcidos por todo el
+        #      frame (esquinas, texturas).
+        #   2. cv2.calcOpticalFlowPyrLK → tracking de esos puntos al frame
+        #      siguiente.
+        #   3. cv2.findHomography(..., RANSAC, 3.0) → la transformación que
+        #      mejor mapea la mayoría de los puntos. Los robots móviles serán
+        #      outliers (minoría) y RANSAC los descarta automáticamente.
+        #   4. Aplicar esa H_motion a las 4 esquinas del campo. La línea de
+        #      gol y el cuadrilátero se mueven JUNTO CON la cámara, no con
+        #      los robots.
+        #
+        # Refresh de features cada N frames para evitar drift acumulado.
+        # Recalibración periódica con detect_field_geometry como corrección.
         recalib_every_n = args.recalib_every
-        from src.utils.field_detect_v2 import detect_goals_by_color
+        max_corner_jump_px = 0.25 * max(meta.height, meta.width)
+        from src.utils.field_detect_v2 import detect_field_geometry
+
+        n_recalib_corners = 0
+        n_recalib_goals = 0
+        n_flow_updates = 0
+        n_flow_fails = 0
+        n_ransac_inliers_total = 0
+
+        lk_params = dict(
+            winSize=(21, 21),
+            maxLevel=3,
+            criteria=(
+                cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+                30,
+                0.01,
+            ),
+        )
+        feat_params = dict(
+            maxCorners=300,
+            qualityLevel=0.01,
+            minDistance=20,
+            blockSize=7,
+        )
+
+        def _is_degenerate(corners_4x2: np.ndarray, h_img: int, w_img: int) -> bool:
+            """Cuadrilátero degenerado = esquinas pegadas al borde o área <10%."""
+            pts = corners_4x2.reshape(-1, 2)
+            border_pad = 3
+            on_border = (
+                (pts[:, 0] <= border_pad).sum()
+                + (pts[:, 0] >= w_img - border_pad).sum()
+                + (pts[:, 1] <= border_pad).sum()
+                + (pts[:, 1] >= h_img - border_pad).sum()
+            )
+            if on_border >= 2:
+                return True
+            area = cv2.contourArea(pts.astype(np.float32))
+            return area < 0.10 * h_img * w_img
+
+        def _refresh_features(gray_img: np.ndarray) -> np.ndarray | None:
+            """Detecta features distribuidos en el ROI del campo (no en bordes)."""
+            h_g, w_g = gray_img.shape
+            mask = np.zeros_like(gray_img)
+            # ROI = bounding box del cuadrilátero del campo + padding suave
+            cint = corners.astype(np.int32).reshape(-1, 2)
+            cv2.fillConvexPoly(mask, cint, 255)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))
+            mask = cv2.dilate(mask, kernel)
+            pts = cv2.goodFeaturesToTrack(gray_img, mask=mask, **feat_params)
+            return pts
+
+        prev_gray = None
+        prev_pts = None
+        refresh_features_every = 15  # refrescar cada 15 frames procesados
 
         for idx, frame in read_frames(args.video, stride=args.stride):
             if idx >= max_frames_to_read:
                 break
             t_now = idx / meta.fps
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-            # 0. Recalibración online (no recalculamos esquinas, solo porterías)
+            # 0a. Refresh features si toca (o si no tenemos)
+            if (
+                prev_pts is None
+                or n_processed == 0
+                or n_processed % refresh_features_every == 0
+            ):
+                prev_pts = _refresh_features(gray)
+
+            # 0b. Estimar movimiento global con RANSAC sobre los features
+            if prev_gray is not None and prev_pts is not None and len(prev_pts) >= 10:
+                tracked, status, _ = cv2.calcOpticalFlowPyrLK(
+                    prev_gray, gray, prev_pts, None, **lk_params
+                )
+                if status is not None:
+                    ok = status.flatten() == 1
+                    if int(ok.sum()) >= 10:
+                        src_pts = prev_pts[ok].reshape(-1, 2)
+                        dst_pts = tracked[ok].reshape(-1, 2)
+                        H_motion, inlier_mask = cv2.findHomography(
+                            src_pts, dst_pts, cv2.RANSAC, 3.0
+                        )
+                        n_inliers = (
+                            int(inlier_mask.sum()) if inlier_mask is not None else 0
+                        )
+                        if H_motion is not None and n_inliers >= 10:
+                            # Aplicar H_motion a las 4 esquinas
+                            corners_h = np.hstack([corners, np.ones((4, 1))]).astype(
+                                np.float64
+                            )
+                            new_h = corners_h @ H_motion.T
+                            new_corners = (new_h[:, :2] / new_h[:, 2:3]).astype(
+                                np.float64
+                            )
+                            if not _is_degenerate(
+                                new_corners, gray.shape[0], gray.shape[1]
+                            ):
+                                corners = new_corners
+                                H = compute_homography(corners)
+                                n_flow_updates += 1
+                                n_ransac_inliers_total += n_inliers
+                                # Mantener solo los inliers para el próximo frame
+                                inliers_flat = inlier_mask.flatten().astype(bool)
+                                prev_pts = (
+                                    tracked[ok][inliers_flat]
+                                    .reshape(-1, 1, 2)
+                                    .astype(np.float32)
+                                )
+                            else:
+                                n_flow_fails += 1
+                                prev_pts = None  # forzar refresh
+                        else:
+                            n_flow_fails += 1
+                    else:
+                        n_flow_fails += 1
+                else:
+                    n_flow_fails += 1
+
+            # 0c. Recalibración periódica con detect_field_geometry como ground truth
             if (
                 recalib_every_n > 0
                 and n_processed > 0
                 and n_processed % recalib_every_n == 0
             ):
-                new_goals = detect_goals_by_color(frame)
-                if new_goals:
-                    goals_by_color = {g.color: g.bbox_xyxy for g in new_goals}
+                new_geom = detect_field_geometry(frame)
+                if new_geom.success and len(new_geom.corners_img) == 4:
+                    cand = new_geom.corners_img
+                    diff = float(np.linalg.norm(cand - corners, axis=1).max())
+                    degen = _is_degenerate(cand, gray.shape[0], gray.shape[1])
+                    if diff < max_corner_jump_px and not degen:
+                        corners = cand
+                        H = compute_homography(corners)
+                        n_recalib_corners += 1
+                        prev_pts = None  # forzar refresh con nueva referencia
+                if new_geom.goals:
+                    goals_by_color = {g.color: g.bbox_xyxy for g in new_geom.goals}
+                    n_recalib_goals += 1
+
+            prev_gray = gray
 
             # 1. SAM 3.1: balón + robots
             seg = segment_with_text(
@@ -589,7 +732,19 @@ def main():
             teams_this_frame = {}
             tracks_record = []
             for tr in tracks:
-                feat = _dominant_feature(frame, tr.bbox_xyxy)
+                # Parámetros agresivos para evitar capturar el fieltro verde
+                # del campo: tercio superior + crop central + saturación alta +
+                # exclusión del hue verde robótico (60-89). Diagnóstico
+                # 2026-05-26: con defaults, el 68% de los matices observados
+                # eran hue~70 (fieltro), colapsando el clasificador a 1 cluster.
+                feat = _dominant_feature(
+                    frame,
+                    tr.bbox_xyxy,
+                    top_fraction=0.33,
+                    central_crop_frac=0.6,
+                    min_saturation=80,
+                    exclude_green_field=True,
+                )
                 team_clf.observe(tr.track_id, feat)
                 team_label = team_clf.assign(tr.track_id)
                 # proyectar centroide a mundo
@@ -1085,6 +1240,18 @@ def main():
         "pipeline_time_s": pipeline_time,
         "effective_fps": n_processed / pipeline_time if pipeline_time > 0 else 0,
         "events_total": len(events),
+        "online_recalibration": {
+            "every_n_processed_frames": args.recalib_every,
+            "max_corner_jump_px": max_corner_jump_px,
+            "n_recalibrations_corners": n_recalib_corners,
+            "n_recalibrations_goals": n_recalib_goals,
+            "n_camera_motion_updates": n_flow_updates,
+            "n_camera_motion_fails": n_flow_fails,
+            "n_ransac_inliers_total": n_ransac_inliers_total,
+            "avg_inliers_per_update": (
+                n_ransac_inliers_total / n_flow_updates if n_flow_updates > 0 else 0
+            ),
+        },
         **match_stats.to_dict(),
     }
     with open(args.out / "summary.json", "w", encoding="utf-8") as f:
