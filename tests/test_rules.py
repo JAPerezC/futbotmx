@@ -175,6 +175,140 @@ def test_ball_inside_goal_right_side():
     assert ball_inside_goal(ball_behind_line, goal_right, field) is True
 
 
+def test_ball_above_goal_line_is_not_goal():
+    """Filtro lateral: balón al lado portería pero arriba del arco no es gol."""
+    field = _make_simple_field()
+    goal_right = np.array([1000, 200, 1100, 300], dtype=np.int32)
+    # Línea de gol va de y=200 a y=300 en x=1000. Balón en y=100 está arriba.
+    ball_above = np.array([1050, 100])
+    assert ball_inside_goal(ball_above, goal_right, field) is False
+
+
+def test_ball_below_goal_line_is_not_goal():
+    """Filtro lateral: balón al lado portería pero debajo del arco no es gol."""
+    field = _make_simple_field()
+    goal_right = np.array([1000, 200, 1100, 300], dtype=np.int32)
+    ball_below = np.array([1050, 450])  # y=450, línea termina en y=300
+    assert ball_inside_goal(ball_below, goal_right, field) is False
+
+
+def test_ball_at_lateral_margin_still_counts():
+    """Filtro lateral con margen 20px: balón a 15px del endpoint cuenta."""
+    field = _make_simple_field()
+    goal_right = np.array([1000, 200, 1100, 300], dtype=np.int32)
+    # Endpoint en y=200; balón en y=185 (15 px arriba, dentro del margen 20).
+    ball_just_above = np.array([1050, 185])
+    assert ball_inside_goal(ball_just_above, goal_right, field) is True
+    # Pero a 25 px arriba (fuera del margen 20) ya no cuenta.
+    ball_too_high = np.array([1050, 175])
+    assert ball_inside_goal(ball_too_high, goal_right, field) is False
+
+
+def test_goal_line_from_field_edge_picks_nearest():
+    """La función elige la arista del campo más cercana a la portería."""
+    from src.events.rules import goal_line_from_field_edge
+
+    field = _make_simple_field()  # (0,0)-(1000,0)-(1000,500)-(0,500)
+    # Portería YELLOW al lado izquierdo del campo
+    yellow_centroid = np.array([-50, 250])
+    a, b = goal_line_from_field_edge(field, yellow_centroid)
+    # Arista izquierda del campo: corners[3]=(0,500) → corners[0]=(0,0)
+    assert {tuple(a.tolist()), tuple(b.tolist())} == {(0.0, 500.0), (0.0, 0.0)}
+
+    # Portería BLUE al lado derecho
+    blue_centroid = np.array([1050, 250])
+    a2, b2 = goal_line_from_field_edge(field, blue_centroid)
+    assert {tuple(a2.tolist()), tuple(b2.tolist())} == {(1000.0, 0.0), (1000.0, 500.0)}
+
+
+def test_goal_line_from_field_edge_oblique_field():
+    """Con un cuadrilátero no rectangular, sigue eligiendo la arista correcta."""
+    from src.events.rules import goal_line_from_field_edge
+
+    field = np.array(
+        [[10, 20], [1010, 5], [1015, 510], [5, 480]], dtype=np.float64
+    )  # TL, TR, BR, BL
+    # Portería YELLOW arriba a la izquierda
+    centroid = np.array([-30, 250])
+    a, b = goal_line_from_field_edge(field, centroid)
+    assert {tuple(a.tolist()), tuple(b.tolist())} == {(5.0, 480.0), (10.0, 20.0)}
+
+
+def test_ball_inside_goal_field_uses_field_edge():
+    """ball_inside_goal_field usa la línea pasada directamente, no el bbox."""
+    from src.events.rules import ball_inside_goal_field
+
+    field = _make_simple_field()
+    # Arista izquierda del campo como línea de gol
+    line = (np.array([0.0, 0.0]), np.array([0.0, 500.0]))
+    ball_in_field = np.array([100, 250])
+    ball_in_goal = np.array([-30, 250])
+    assert ball_inside_goal_field(ball_in_field, line, field) is False
+    assert ball_inside_goal_field(ball_in_goal, line, field) is True
+
+
+def test_ball_inside_goal_field_lateral_filter():
+    """ball_inside_goal_field filtra balones arriba/abajo del ancho del arco."""
+    from src.events.rules import ball_inside_goal_field
+
+    field = _make_simple_field()
+    # Línea de gol acotada al ancho de la portería (y ∈ [200, 300])
+    line = (np.array([0.0, 200.0]), np.array([0.0, 300.0]))
+    ball_above = np.array([-30, 50])  # bien arriba del rango
+    ball_below = np.array([-30, 450])  # bien debajo
+    ball_inside_arc = np.array([-30, 250])
+    assert ball_inside_goal_field(ball_above, line, field) is False
+    assert ball_inside_goal_field(ball_below, line, field) is False
+    assert ball_inside_goal_field(ball_inside_arc, line, field) is True
+
+
+def test_ball_inside_goal_field_with_bbox_restricts_lateral():
+    """Pasando goal_bbox_xyxy se restringe el rango lateral al bbox + margen."""
+    from src.events.rules import ball_inside_goal_field
+
+    field = _make_simple_field()
+    # Arista LEFT del campo: y∈[0, 500] en x=0
+    line = (np.array([0.0, 0.0]), np.array([0.0, 500.0]))
+    # Bbox de portería en y∈[200, 300] (centrado en y=250).
+    bbox = np.array([-100, 200, 0, 300], dtype=np.float64)
+    # Balón pasado de la línea pero en y=400 (fuera del bbox lateral).
+    ball_far = np.array([-30, 400])
+    # Sin bbox: pasaría el filtro lateral (línea va de y=0 a y=500).
+    assert ball_inside_goal_field(ball_far, line, field) is True
+    # Con bbox: el rango se restringe a y∈[180, 320] (margen 20). 400 → fuera.
+    assert ball_inside_goal_field(ball_far, line, field, goal_bbox_xyxy=bbox) is False
+    # Balón dentro del rango del bbox: sigue contando.
+    ball_in_bbox = np.array([-30, 250])
+    assert (
+        ball_inside_goal_field(ball_in_bbox, line, field, goal_bbox_xyxy=bbox) is True
+    )
+
+
+def test_ball_inside_goal_field_hysteresis():
+    """Histeresis: una vez adentro, no sale hasta cruzar +deadband."""
+    from src.events.rules import ball_inside_goal_field
+
+    field = _make_simple_field()
+    line = (np.array([0.0, 200.0]), np.array([0.0, 300.0]))
+    # Balón a 10 px lado campo, dentro del deadband (25 px)
+    ball_near = np.array([10, 250])
+    assert ball_inside_goal_field(ball_near, line, field, prev_inside=True) is True
+    assert ball_inside_goal_field(ball_near, line, field, prev_inside=False) is False
+
+
+def test_lateral_filter_horizontal_goal_line():
+    """Filtro lateral con línea horizontal (portería en lado top o bottom)."""
+    field = _make_simple_field()
+    # Portería arriba del campo: bbox y < 0
+    goal_top = np.array([400, -100, 600, 0], dtype=np.int32)
+    # Línea va de x=400 a x=600. Balón a x=200 (lejos a la izquierda) no es gol.
+    ball_left_of_line = np.array([200, -50])
+    assert ball_inside_goal(ball_left_of_line, goal_top, field) is False
+    # Balón a x=500 (centro de la línea) sí es gol.
+    ball_centered = np.array([500, -50])
+    assert ball_inside_goal(ball_centered, goal_top, field) is True
+
+
 # Tests fix B — detección de gol por coordenadas mundo (mm)
 
 from src.events.rules import (

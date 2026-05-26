@@ -44,12 +44,12 @@ from src.events.possession import POSSESSION_RADIUS_MM, closest_robot_possession
 from src.events.rules import (
     DAMAGED_TIME_S,
     Event,
-    ball_inside_goal,
+    ball_inside_goal_field,
     detect_collisions,
     detect_goal_crossing,
     detect_kick,
     detect_pass_or_interception,
-    goal_line_endpoints,
+    goal_line_from_field_edge,
     is_damaged_robot,
     is_kick,
     is_no_progress,
@@ -649,25 +649,32 @@ def main():
                     current_events.append(ev)
                     match_stats.register_event("kick")
 
-            # Gol: el balón cruza la LÍNEA DE GOL (arista interior del bbox de
-            # la portería). A diferencia del antiguo "dentro del bbox", esto
-            # solo dispara en la TRANSICIÓN afuera→adentro, así un balón que
-            # se queda estacionado dentro de la portería cuenta una sola vez.
-            # Gol por coordenadas MUNDO (mm): usa homografía + dimensiones del
-            # reglamento + el rango Y REAL de la portería (proyectando su bbox
-            # a mm). El rango fijo W/2±300 fallaba en videos donde la portería
-            # queda descentrada por la perspectiva.
+            # Gol: el balón cruza la LÍNEA DE GOL = arista del cuadrilátero del
+            # CAMPO más cercana a la portería detectada. Esto es más robusto que
+            # la arista del bbox HSV porque:
+            # - El cuadrilátero del campo se calibra UNA vez al inicio (no
+            #   driftea con la recalibración online del bbox de portería).
+            # - El HSV puede sobre-detectar la portería (reflejos, sombras)
+            #   expandiendo el bbox hacia adentro del campo y disparando FP.
+            # Además, filtro lateral: el balón debe estar entre los 2 endpoints
+            # de la línea (con margen). Sin esto, un balón que pasa por delante
+            # del arco fuera del rango Y dispara "gol" indebidamente.
+            # Histeresis + cooldown 5s + guard t>1s preservados.
             if ball_state.found and ball_mm is not None and goals_by_color:
                 ball_px = np.array([ball_state.cx, ball_state.cy], dtype=np.float64)
                 for goal_color, bbox in goals_by_color.items():
                     was_inside = was_ball_inside_goal.get(goal_color, False)
-                    # Lógica final: cruce de la línea de gol (arista interior
-                    # del bbox de portería) con histeresis + cooldown. Las
-                    # variantes con coordenadas mundo (mm) perdían goles
-                    # reales cuando la homografía era imprecisa fuera del
-                    # campo (caso típico en perspectivas oblicuas).
-                    is_inside = ball_inside_goal(
-                        ball_px, bbox, corners, prev_inside=was_inside
+                    goal_centroid = np.array(
+                        [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2],
+                        dtype=np.float64,
+                    )
+                    goal_line = goal_line_from_field_edge(corners, goal_centroid)
+                    is_inside = ball_inside_goal_field(
+                        ball_px,
+                        goal_line,
+                        corners,
+                        prev_inside=was_inside,
+                        goal_bbox_xyxy=bbox,
                     )
                     crossing = detect_goal_crossing(was_inside, is_inside)
                     last_goal_t = last_goal_time_by_color.get(goal_color, -1e9)
@@ -675,8 +682,7 @@ def main():
                         last_goal_time_by_color[goal_color] = t_now
                         last_event_id += 1
                         scoring_team = prev_owner_team
-                        bbox = goals_by_color[goal_color]
-                        gl_a, gl_b = goal_line_endpoints(bbox, corners)
+                        gl_a, gl_b = goal_line
                         ev = Event(
                             t=t_now,
                             type="goal",
@@ -688,7 +694,7 @@ def main():
                                 "scoring_team": scoring_team,
                                 "ball_px": (float(ball_px[0]), float(ball_px[1])),
                                 "ball_mm": (float(ball_mm[0]), float(ball_mm[1])),
-                                "method": "mm_world_coordinates",
+                                "method": "field_edge_with_lateral_filter",
                                 "goal_line_px": [
                                     [float(gl_a[0]), float(gl_a[1])],
                                     [float(gl_b[0]), float(gl_b[1])],
@@ -911,8 +917,13 @@ def main():
                     2,
                     cv2.LINE_AA,
                 )
-                # Línea de gol: arista interior del bbox (la que da al campo).
-                gl_a, gl_b = goal_line_endpoints(bbox, corners)
+                # Línea de gol: arista del CAMPO más cercana a la portería
+                # (no la arista del bbox HSV — esa drifteaba con la cámara).
+                goal_centroid_draw = np.array(
+                    [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2],
+                    dtype=np.float64,
+                )
+                gl_a, gl_b = goal_line_from_field_edge(corners, goal_centroid_draw)
                 pa = (int(gl_a[0]), int(gl_a[1]))
                 pb = (int(gl_b[0]), int(gl_b[1]))
                 cv2.line(annotated, pa, pb, (0, 0, 255), 5, cv2.LINE_AA)

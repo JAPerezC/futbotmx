@@ -53,6 +53,7 @@ def ball_inside_goal(
     field_corners: np.ndarray,
     deadband_px: float = 25.0,
     prev_inside: bool = False,
+    lateral_margin_px: float = 20.0,
 ) -> bool:
     """Determina si el balón ya cruzó la línea de gol de una portería.
 
@@ -65,6 +66,13 @@ def ball_inside_goal(
     que delta > +deadband_px; una vez "afuera" se cuenta afuera hasta que
     delta < -deadband_px. Esto suprime el flicker del centroide del balón
     (que vibra ±10 px por frame) cuando rueda sobre la línea.
+
+    Filtro lateral (`lateral_margin_px`): el balón también debe estar
+    entre los 2 endpoints de la línea de gol (proyección a lo largo de la
+    línea, con margen). Sin este filtro, un balón que pasa por delante de
+    la portería pero arriba/abajo del arco dispara "gol" porque la proyección
+    perpendicular cae del lado portería. Pasa por defecto a 20 px (~5% del
+    ancho típico de un bbox de portería robótica).
     """
     bbox = np.asarray(goal_bbox_xyxy, dtype=np.float64).reshape(4)
     x1, y1, x2, y2 = bbox
@@ -80,8 +88,17 @@ def ball_inside_goal(
     bbox_corners = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float64)
     projections = (bbox_corners - goal_center) @ direction
     order = np.argsort(-projections)
-    edge_midpoint = bbox_corners[order[:2]].mean(axis=0)
+    line_a = bbox_corners[order[0]]
+    line_b = bbox_corners[order[1]]
+    edge_midpoint = (line_a + line_b) / 2
     ball = np.asarray(ball_px, dtype=np.float64).reshape(2)
+    along = line_b - line_a
+    along_len = float(np.linalg.norm(along))
+    if along_len > 1e-3:
+        along_unit = along / along_len
+        s = float((ball - line_a) @ along_unit)
+        if s < -lateral_margin_px or s > along_len + lateral_margin_px:
+            return False
     delta = float((ball - edge_midpoint) @ direction)
     if prev_inside:
         return delta < deadband_px
@@ -120,6 +137,113 @@ def detect_goal_crossing(was_inside: bool, is_inside_now: bool) -> bool:
     típica de "balón dentro de la portería" durante varios frames seguidos.
     """
     return is_inside_now and not was_inside
+
+
+def goal_line_from_field_edge(
+    field_corners: np.ndarray,
+    goal_centroid_img: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Endpoints de la arista del cuadrilátero del CAMPO más cercana a la portería.
+
+    Más robusta que `goal_line_endpoints` (que usa el bbox HSV de portería) porque:
+    - El cuadrilátero del campo se calibra UNA vez al inicio y no driftea con la
+      cámara como sí lo hace el bbox HSV recalibrado cada N frames.
+    - El HSV puede sobre-detectar la portería (reflejos, sombras del mismo color)
+      expandiendo el bbox hacia adentro del campo. La arista del campo es la línea
+      geométrica REAL definida por las líneas blancas del reglamento.
+
+    Args:
+        field_corners: (4, 2) esquinas del campo en orden TL, TR, BR, BL.
+        goal_centroid_img: (2,) centroide de la portería detectada en imagen.
+
+    Returns:
+        Tupla (a, b) con los 2 endpoints de la arista en imagen.
+    """
+    corners = np.asarray(field_corners, dtype=np.float64).reshape(-1, 2)
+    if len(corners) < 4:
+        raise ValueError("se requieren al menos 4 esquinas del campo")
+    g = np.asarray(goal_centroid_img, dtype=np.float64).reshape(2)
+    n = len(corners)
+    best_idx = 0
+    best_dist = float("inf")
+    for i in range(n):
+        a = corners[i]
+        b = corners[(i + 1) % n]
+        ab = b - a
+        ab_len = float(np.linalg.norm(ab))
+        if ab_len < 1e-6:
+            continue
+        ab_unit = ab / ab_len
+        t = float((g - a) @ ab_unit)
+        t_c = max(0.0, min(ab_len, t))
+        nearest = a + t_c * ab_unit
+        d = float(np.linalg.norm(g - nearest))
+        if d < best_dist:
+            best_dist = d
+            best_idx = i
+    return corners[best_idx].copy(), corners[(best_idx + 1) % n].copy()
+
+
+def ball_inside_goal_field(
+    ball_px: np.ndarray,
+    goal_line: tuple[np.ndarray, np.ndarray],
+    field_corners: np.ndarray,
+    deadband_px: float = 25.0,
+    lateral_margin_px: float = 20.0,
+    prev_inside: bool = False,
+    goal_bbox_xyxy: np.ndarray | None = None,
+) -> bool:
+    """Versión de `ball_inside_goal` con línea de gol arbitraria (no del bbox).
+
+    Pensada para recibir la arista del campo (via `goal_line_from_field_edge`)
+    en vez de la arista del bbox HSV de portería. Mantiene la misma lógica
+    de histéresis y filtro lateral.
+
+    Si se pasa `goal_bbox_xyxy`, el rango lateral aceptado se restringe a la
+    proyección del bbox sobre la línea (con margen). Eso evita FP cuando el
+    balón aparece detrás de la línea pero LATERALMENTE LEJOS del arco real
+    (artefacto típico cuando el tracker del balón salta a posiciones espurias
+    en perspectiva oblicua).
+
+    Convención de signos: positivo = lado campo, negativo = lado portería
+    (igual que `ball_inside_goal` para consistencia).
+    """
+    a = np.asarray(goal_line[0], dtype=np.float64).reshape(2)
+    b = np.asarray(goal_line[1], dtype=np.float64).reshape(2)
+    midpoint = (a + b) / 2
+    along = b - a
+    along_len = float(np.linalg.norm(along))
+    if along_len < 1e-3:
+        return False
+    along_unit = along / along_len
+    field_center = (
+        np.asarray(field_corners, dtype=np.float64).reshape(-1, 2).mean(axis=0)
+    )
+    direction = field_center - midpoint
+    norm = float(np.linalg.norm(direction))
+    if norm < 1e-3:
+        return False
+    direction /= norm
+    ball = np.asarray(ball_px, dtype=np.float64).reshape(2)
+    if goal_bbox_xyxy is not None:
+        bbox = np.asarray(goal_bbox_xyxy, dtype=np.float64).reshape(4)
+        x1, y1, x2, y2 = bbox
+        bbox_corners = np.array(
+            [[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float64
+        )
+        projections_bbox = (bbox_corners - a) @ along_unit
+        s_min = float(projections_bbox.min()) - lateral_margin_px
+        s_max = float(projections_bbox.max()) + lateral_margin_px
+    else:
+        s_min = -lateral_margin_px
+        s_max = along_len + lateral_margin_px
+    s = float((ball - a) @ along_unit)
+    if s < s_min or s > s_max:
+        return False
+    delta = float((ball - midpoint) @ direction)
+    if prev_inside:
+        return delta < deadband_px
+    return delta < -deadband_px
 
 
 # === Detección de gol por coordenadas mundo (mm) — fix B ===
