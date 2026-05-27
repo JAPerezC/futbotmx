@@ -364,6 +364,77 @@ def test_mm_hysteresis_keeps_inside():
     assert ball_inside_goal_mm(ball, "yellow", prev_inside=False) is False
 
 
+def test_back_wall_yellow_goal_deep_inside_is_goal():
+    """Reglamento § 4.4.5: balón a 80 mm dentro de portería izquierda = gol."""
+    from src.events.rules import ball_at_back_wall_mm
+
+    ball = np.array([-80, W / 2])  # x negativo, y centrado
+    goal = np.array([-30, W / 2])  # centroide portería en x≈0
+    assert ball_at_back_wall_mm(ball, goal) is True
+
+
+def test_back_wall_just_crossing_line_not_goal():
+    """Balón apenas cruzó la línea (x=-30) pero falta tocar pared (50 mm)."""
+    from src.events.rules import ball_at_back_wall_mm
+
+    ball = np.array([-30, W / 2])
+    goal = np.array([-30, W / 2])
+    assert ball_at_back_wall_mm(ball, goal) is False
+
+
+def test_back_wall_outside_y_range_not_goal():
+    """Balón profundo pero fuera del ancho de 60 cm de portería = no gol."""
+    from src.events.rules import ball_at_back_wall_mm
+
+    ball = np.array([-100, 200])  # y muy lejos del centro
+    goal = np.array([-30, W / 2])
+    assert ball_at_back_wall_mm(ball, goal) is False
+
+
+def test_back_wall_blue_goal_right_side():
+    """Portería derecha: gol si x > L + min_depth."""
+    from src.events.rules import ball_at_back_wall_mm
+
+    ball = np.array([L + 80, W / 2])
+    goal = np.array([L + 30, W / 2])  # centroide portería en x≈L
+    assert ball_at_back_wall_mm(ball, goal) is True
+
+
+def test_back_wall_hysteresis():
+    """Una vez adentro, sigue adentro hasta delta > 30 mm hacia el campo."""
+    from src.events.rules import ball_at_back_wall_mm
+
+    # Balón en x=20 (lado campo, 20 mm fuera de la línea)
+    ball = np.array([20, W / 2])
+    goal = np.array([-30, W / 2])
+    # Si estaba adentro: sigue adentro (depth=-20 > -30)
+    assert ball_at_back_wall_mm(ball, goal, prev_inside=True) is True
+    # Si estaba afuera: depth=-20 < 50 → no gol
+    assert ball_at_back_wall_mm(ball, goal, prev_inside=False) is False
+
+
+def test_back_wall_too_deep_is_artifact():
+    """Balón con profundidad >800 mm = artefacto de homografía, no gol."""
+    from src.events.rules import ball_at_back_wall_mm
+
+    ball = np.array([-1000, W / 2])  # 1000 mm dentro, físicamente imposible
+    goal = np.array([-30, W / 2])
+    assert ball_at_back_wall_mm(ball, goal) is False
+
+
+def test_back_wall_auto_detects_side():
+    """La función infiere lado por la posición del centroide de portería."""
+    from src.events.rules import ball_at_back_wall_mm
+
+    # Portería en x=L-30 → lado derecho
+    ball_right = np.array([L + 60, W / 2])
+    goal_right = np.array([L - 30, W / 2])
+    assert ball_at_back_wall_mm(ball_right, goal_right) is True
+    # Mismo balón pero con centroide en lado izquierdo (anomalía) NO debe contar
+    goal_left = np.array([30, W / 2])
+    assert ball_at_back_wall_mm(ball_right, goal_left) is False
+
+
 def test_mm_unknown_color_returns_false():
     ball = np.array([-100, W / 2])
     assert ball_inside_goal_mm(ball, "red", prev_inside=False) is False

@@ -44,6 +44,7 @@ from src.events.possession import POSSESSION_RADIUS_MM, closest_robot_possession
 from src.events.rules import (
     DAMAGED_TIME_S,
     Event,
+    ball_at_back_wall_mm,
     ball_inside_goal,
     ball_inside_goal_field,
     detect_collisions,
@@ -816,6 +817,26 @@ def main():
             # de la línea (con margen). Sin esto, un balón que pasa por delante
             # del arco fuera del rango Y dispara "gol" indebidamente.
             # Histeresis + cooldown 5s + guard t>1s preservados.
+            # Velocidad reciente del balón en mm/s (entre los 2 últimos
+            # frames con balón válido). Usada como filtro contra FP por
+            # saltos del tracker (especialmente del fallback HSV cuando SAM
+            # 3 pierde el balón y HSV captura un objeto naranja/amarillo
+            # espurio en otra parte de la imagen).
+            ball_speed_recent_mm_s: float | None = None
+            if len(ball_positions_mm) >= 2:
+                tp_b, xy_p_b = ball_positions_mm[-2]
+                tc_b, xy_c_b = ball_positions_mm[-1]
+                dt_b = tc_b - tp_b
+                if dt_b > 0:
+                    ball_speed_recent_mm_s = float(
+                        np.linalg.norm(xy_c_b - xy_p_b) / dt_b
+                    )
+
+            # Máxima velocidad físicamente plausible del balón en un campo
+            # robótico (~10 m/s = 36 km/h). Saltos mayores son artefactos
+            # del tracker o de la homografía proyectando un balón espurio.
+            MAX_REASONABLE_BALL_SPEED_MM_S = 10000.0
+
             if ball_state.found and ball_mm is not None and goals_by_color:
                 ball_px = np.array([ball_state.cx, ball_state.cy], dtype=np.float64)
                 for goal_color, bbox in goals_by_color.items():
@@ -843,10 +864,49 @@ def main():
                     is_inside_bbox = ball_inside_goal(
                         ball_px, bbox, corners, prev_inside=was_inside
                     )
-                    is_inside = is_inside_field and is_inside_bbox
+                    # Reglamento § 4.4.5 + § 7.4.4: el balón debe TOCAR la pared
+                    # trasera de la portería. Aproximamos: el centroide del balón
+                    # en MUNDO (mm) debe estar al menos 50 mm pasada la línea
+                    # de gol (mitad de los 100 mm de profundidad de portería)
+                    # Y dentro del ancho de 60 cm centrado (§ 7.3.5 + § 7.4.2).
+                    # El lado del campo se infiere proyectando el centroide
+                    # de la portería detectada al mundo.
+                    goal_centroid_mm = project_points(goal_centroid.reshape(1, 2), H)[0]
+                    is_at_back_wall = ball_at_back_wall_mm(
+                        ball_mm, goal_centroid_mm, prev_inside=was_inside
+                    )
+                    # Filtro espacial en IMAGEN: el balón debe estar dentro
+                    # del bbox de la portería detectada (con margen 30 px).
+                    # Esto descarta FP donde el balón en mm parece "dentro" por
+                    # error de homografía pero en imagen está lateralmente
+                    # lejos del arco real.
+                    bbox_margin_px = 30
+                    ball_in_bbox_extended = (
+                        bbox[0] - bbox_margin_px
+                        <= ball_px[0]
+                        <= bbox[2] + bbox_margin_px
+                        and bbox[1] - bbox_margin_px
+                        <= ball_px[1]
+                        <= bbox[3] + bbox_margin_px
+                    )
+                    is_inside = (
+                        is_inside_field
+                        and is_inside_bbox
+                        and is_at_back_wall
+                        and ball_in_bbox_extended
+                    )
                     crossing = detect_goal_crossing(was_inside, is_inside)
                     last_goal_t = last_goal_time_by_color.get(goal_color, -1e9)
-                    if crossing and t_now > 1.0 and t_now - last_goal_t > 5.0:
+                    speed_ok = (
+                        ball_speed_recent_mm_s is None
+                        or ball_speed_recent_mm_s < MAX_REASONABLE_BALL_SPEED_MM_S
+                    )
+                    if (
+                        crossing
+                        and t_now > 1.0
+                        and t_now - last_goal_t > 5.0
+                        and speed_ok
+                    ):
                         last_goal_time_by_color[goal_color] = t_now
                         last_event_id += 1
                         scoring_team = prev_owner_team
@@ -862,12 +922,17 @@ def main():
                                 "scoring_team": scoring_team,
                                 "ball_px": (float(ball_px[0]), float(ball_px[1])),
                                 "ball_mm": (float(ball_mm[0]), float(ball_mm[1])),
-                                "method": "AND_field_edge_and_bbox_edge",
+                                "method": "AND_field_bbox_speed_backwall_reglamento",
                                 "goal_line_px": [
                                     [float(gl_a[0]), float(gl_a[1])],
                                     [float(gl_b[0]), float(gl_b[1])],
                                 ],
                                 "goal_bbox_xyxy": [float(v) for v in bbox],
+                                "ball_speed_mm_s": (
+                                    ball_speed_recent_mm_s
+                                    if ball_speed_recent_mm_s is not None
+                                    else 0.0
+                                ),
                             },
                         )
                         events.append(ev)

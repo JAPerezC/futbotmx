@@ -184,6 +184,53 @@ def goal_line_from_field_edge(
     return corners[best_idx].copy(), corners[(best_idx + 1) % n].copy()
 
 
+def ball_at_back_wall_mm(
+    ball_mm: np.ndarray,
+    goal_centroid_mm: np.ndarray,
+    field_length_mm: float = FIELD_LENGTH_MM,
+    field_width_mm: float = FIELD_WIDTH_MM,
+    goal_half_width_mm: float = GOAL_HALF_WIDTH_MM,
+    min_depth_mm: float = 50.0,
+    max_depth_mm: float = 800.0,
+    prev_inside: bool = False,
+) -> bool:
+    """Reglamento § 4.4.5 + § 7.4.4: gol cuando el balón toca la pared
+    trasera de la portería.
+
+    La portería tiene 100 mm de profundidad (§ 7.4.1). Aceptamos el balón
+    como "tocando la pared trasera" si su centroide en mundo (mm) está:
+    - Al menos `min_depth_mm` (50 mm = mitad de la profundidad) más allá
+      de la línea de gol.
+    - Pero no más de `max_depth_mm` (200 mm) — más profundo es físicamente
+      imposible (la portería tiene 100 mm de profundidad + tolerancia de
+      homografía + radio del balón 21 mm ≈ 200 mm máximo razonable).
+      Profundidades > 200 mm indican que la homografía está extrapolando
+      mal un balón espurio fuera del cuadrilátero del campo.
+    - Dentro del ancho de 60 cm de la portería (§ 7.3.5 + § 7.4.2):
+      y ∈ [W/2 - 300, W/2 + 300] (asume portería centrada).
+
+    El lado del campo se determina automáticamente por la posición del
+    centroide de la portería en mundo.
+
+    Histéresis ±30 mm para evitar flicker.
+    """
+    ball = np.asarray(ball_mm, dtype=np.float64).reshape(2)
+    goal = np.asarray(goal_centroid_mm, dtype=np.float64).reshape(2)
+    bx, by = float(ball[0]), float(ball[1])
+    if float(goal[0]) < field_length_mm / 2:
+        depth = -bx
+    else:
+        depth = bx - field_length_mm
+    y_margin = 20.0 if prev_inside else 0.0
+    y_center = field_width_mm / 2
+    in_y_range = abs(by - y_center) <= goal_half_width_mm + y_margin
+    if prev_inside:
+        deep_enough = -30.0 <= depth <= max_depth_mm + 30.0
+    else:
+        deep_enough = min_depth_mm <= depth <= max_depth_mm
+    return bool(deep_enough and in_y_range)
+
+
 def ball_inside_goal_field(
     ball_px: np.ndarray,
     goal_line: tuple[np.ndarray, np.ndarray],
