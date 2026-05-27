@@ -909,7 +909,22 @@ def main():
                     ):
                         last_goal_time_by_color[goal_color] = t_now
                         last_event_id += 1
+                        # Asignación de equipo anotador. Si no hay posesión
+                        # clara (prev_owner_team=None — caso típico cuando el
+                        # balón viaja rápido al gol y el classifier aún no
+                        # asignó al último poseedor), inferir del color de la
+                        # portería: el equipo que ATACA la portería X es el
+                        # opuesto al que la defiende. Convención del proyecto:
+                        # team A defiende yellow, team B defiende blue. Por
+                        # tanto: gol en yellow → team B anotó; gol en blue →
+                        # team A anotó. El reglamento no fija esta asociación,
+                        # se puede invertir con un flag si el usuario lo pide.
                         scoring_team = prev_owner_team
+                        if scoring_team is None:
+                            scoring_team = "B" if goal_color == "yellow" else "A"
+                            scoring_team_source = "inferred_by_goal_color"
+                        else:
+                            scoring_team_source = "last_possession"
                         gl_a, gl_b = goal_line
                         ev = Event(
                             t=t_now,
@@ -920,6 +935,7 @@ def main():
                             meta={
                                 "goal_color": goal_color,
                                 "scoring_team": scoring_team,
+                                "scoring_team_source": scoring_team_source,
                                 "ball_px": (float(ball_px[0]), float(ball_px[1])),
                                 "ball_mm": (float(ball_mm[0]), float(ball_mm[1])),
                                 "method": "AND_field_bbox_speed_backwall_reglamento",
